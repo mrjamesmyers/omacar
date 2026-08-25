@@ -19,6 +19,18 @@ echo
 echo "  OmaCar smoke test (scratch HOME: $SCRATCH)"
 echo
 
+# Isolate XDG too. These are absolute paths that survive a HOME override, and
+# an uninstall deletes its state directory — a test that only overrides HOME
+# will happily delete the real one.
+export XDG_CONFIG_HOME="$SCRATCH/.config" XDG_STATE_HOME="$SCRATCH/.local/state"
+export XDG_DATA_HOME="$SCRATCH/.local/share" XDG_CACHE_HOME="$SCRATCH/.cache"
+
+# Sentinel: prove afterwards that the real state directory was never touched.
+REAL_STATE="$(getent passwd "$(id -u)" | cut -d: -f6)/.local/state/omacar"
+mkdir -p "$REAL_STATE"
+date +%s%N >"$REAL_STATE/.smoke-sentinel"
+sentinel_before=$(cat "$REAL_STATE/.smoke-sentinel")
+
 mkdir -p "$SCRATCH/.config/omarchy/extensions" "$SCRATCH/.config/hypr"
 printf '{\n}\n' >"$SCRATCH/.config/omarchy/extensions/omarchy-menu.jsonc"
 printf '{"plugins":[],"bar":{"layout":{}}}\n' >"$SCRATCH/.config/omarchy/shell.json"
@@ -54,6 +66,8 @@ HOME="$SCRATCH" "$ROOT/uninstall.sh" >/dev/null 2>&1 || bad "uninstall.sh exited
 [[ -e "$SCRATCH/.local/bin/omacar" ]] && bad "CLI removed" || ok "CLI removed"
 grep -q '>>> omacar' "$SCRATCH/.config/omarchy/extensions/omarchy-menu.jsonc" && bad "menu block removed" || ok "menu block removed"
 check "user's own config untouched" "$before_bindings" "$(cat "$SCRATCH/.config/hypr/bindings.lua")"
+check "real state directory never touched" "$sentinel_before" "$(cat "$REAL_STATE/.smoke-sentinel" 2>/dev/null)"
+rm -f "$REAL_STATE/.smoke-sentinel"
 
 echo
 if ((fails)); then echo "  $fails failed"; exit 1; else echo "  all good"; fi

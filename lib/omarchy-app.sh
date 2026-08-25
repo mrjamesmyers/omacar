@@ -21,21 +21,34 @@ oa_init() { # slug "Display Name"
   OA_NAME="${2:-$1}"
   OA_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[1]}")")" && pwd)"
 
-  OA_BIN="$HOME/.local/bin"
-  OA_CMD="$OA_BIN/$OA_APP"
-  OA_PLUGIN_DIR="$HOME/.config/omarchy/plugins/$OA_APP"
-  OA_MENU_FILE="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
-  OA_SHELL_JSON="$HOME/.config/omarchy/shell.json"
-  OA_BINDINGS_FILE="$HOME/.config/hypr/bindings.lua"
-  OA_AUTOSTART_FILE="$HOME/.config/hypr/autostart.lua"
-  OA_ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
-  OA_APPS_DIR="$HOME/.local/share/applications"
-  OA_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/$OA_APP"
-  OA_TOGGLE_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/toggles/hypr/$OA_APP.lua"
-
   # Live desktop calls are no-ops when we're installing into a scratch HOME.
   OA_LIVE=1
   [[ "$HOME" == "$(getent passwd "$(id -u)" | cut -d: -f6)" ]] || OA_LIVE=0
+
+  # A scratch HOME has to isolate *everything*, and XDG_* are absolute paths
+  # that happily survive a HOME override — so a test that only overrides HOME
+  # will still find, and an uninstall will still delete, the real state
+  # directory. Re-point them inside the scratch HOME and export, so child
+  # processes (python helpers, daemons) are isolated too.
+  if ((OA_LIVE == 0)); then
+    export XDG_CONFIG_HOME="$HOME/.config"
+    export XDG_STATE_HOME="$HOME/.local/state"
+    export XDG_DATA_HOME="$HOME/.local/share"
+    export XDG_CACHE_HOME="$HOME/.cache"
+  fi
+
+  OA_BIN="$HOME/.local/bin"
+  OA_CMD="$OA_BIN/$OA_APP"
+  OA_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
+  OA_PLUGIN_DIR="$OA_CONFIG/omarchy/plugins/$OA_APP"
+  OA_MENU_FILE="$OA_CONFIG/omarchy/extensions/omarchy-menu.jsonc"
+  OA_SHELL_JSON="$OA_CONFIG/omarchy/shell.json"
+  OA_BINDINGS_FILE="$OA_CONFIG/hypr/bindings.lua"
+  OA_AUTOSTART_FILE="$OA_CONFIG/hypr/autostart.lua"
+  OA_ICON_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps"
+  OA_APPS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+  OA_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/$OA_APP"
+  OA_TOGGLE_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/toggles/hypr/$OA_APP.lua"
 }
 
 oa_say()  { printf '  \033[1m%s\033[0m %s\n' "${1:-}" "${2:-}"; }
