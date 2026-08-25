@@ -78,7 +78,9 @@ bench_start() {
     return
   fi
   rm -f "$BENCH_OUT" "$BENCH_PTY"
-  setsid -f "$OMACAR_ELM" -b "$BENCH_OUT" -s "${1:-car}" >/dev/null 2>&1
+  # The emulator writes elm.log into its working directory, so run it from
+  # the state dir rather than dropping a log wherever the user happened to be.
+  setsid -f sh -c "cd '$OMACAR_STATE' && exec '$OMACAR_ELM' -b '$BENCH_OUT' -s '${1:-car}'" >/dev/null 2>&1
   local i
   for i in $(seq 1 30); do
     sleep 0.3
