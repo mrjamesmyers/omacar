@@ -7,9 +7,9 @@ but everything below P2 is generic OBD-II and works on any car built since 1996.
 
     ./install.sh          CLI, launcher, icon, and Omarchy menu entries
     ./install.sh --bind   also bind Super+Shift+C
-    ./test/smoke.sh       install into a scratch HOME and verify, safely
+    ./test/all.sh         every test — needs neither a car nor an adapter
 
-## Status: P1 — the cluster
+## Status: P2 — the PID prospector
 
 You do not need the adapter, or the car, to develop this.
 
@@ -70,14 +70,42 @@ permission error.
 
 ## Where it goes next
 
-- **P2 — the CR-Z profile.** IMA state of charge, assist vs. regen, and battery
-  temperature live behind Honda-specific PIDs that no off-the-shelf tool ships.
-  A PID prospector sweeps Mode 22 across the hybrid ECU headers, logs what
-  answers, and validates candidates against the dash's own SoC bars. The output
-  is `profiles/honda-crz-2015.yaml` — the part worth handing back to the CR-Z
-  community.
 - **P3 — faults and readiness.** DTCs in plain English, freeze frames, and
   readiness monitors.
+
+## Finding what Honda does not document
+
+Generic OBD-II will not give you IMA state of charge, assist/regen current, or
+battery temperature — those live behind manufacturer services, and no
+off-the-shelf tool ships a Honda custom-PID set.
+
+    omacar prospect                              sweep service 0x21 (Honda)
+    omacar prospect --service 0x22 --range 0000-01FF
+    omacar profile                               what has been learned so far
+
+The method: sweep candidate headers against a read-only service, keep whatever
+answers, then **re-sample every responder several times and diff the payloads**.
+Bytes that never change are almost certainly not the reading you want; variance
+is the signal. The output is a draft profile of candidates.
+
+A responder is evidence that an address exists, not knowledge of what it means.
+Every drafted entry is `confidence = "candidate"`, and **an unvalidated
+candidate must never drive a gauge**. Name it, write its formula, check it
+against something you can see — the dash's own SoC bars, or a second tool —
+then mark it validated.
+
+### Safety, enforced rather than documented
+
+- **Read-only at the transport.** `lib/elm.py` holds a whitelist of services it
+  will emit (0x01, 0x02, 0x03, 0x06, 0x07, 0x09, 0x21, 0x22) and raises before
+  anything reaches the bus otherwise. Write (0x2E), input/output control
+  (0x2F), routine control (0x31), ECU reset (0x11) and clear-DTC (0x14) cannot
+  be sent by this tool at all.
+- **It refuses to sweep a moving car.** Road speed is checked first; if the car
+  is moving it stops, and if speed cannot be read it stops and asks you to
+  confirm with `--parked` rather than assuming.
+- **It refuses to fight the daemon** for the serial port.
+- Rate-limited, and headers that answer nothing are abandoned early.
 
 ## Verify shader changes on the real display
 

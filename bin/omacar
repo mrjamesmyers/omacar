@@ -8,6 +8,8 @@
 #                             the ELM327 bench emulator — develop without a car
 #   omacar doctor             adapter, protocol, supported PIDs, stored faults
 #   omacar live [PID...]      stream readings to the terminal
+#   omacar prospect [opts]    hunt for manufacturer-specific PIDs (read-only)
+#   omacar profile [list]     car profiles OmaCar has learned
 #   omacar daemon start|stop|status
 #                             the polling daemon that feeds the cluster
 #   omacar state              key=value status for the bar widget
@@ -164,7 +166,10 @@ state() {
   echo "protocol=$protocol"
 }
 
-usage() { sed -n '3,19p' "$(readlink -f "${BASH_SOURCE[0]}")" | sed 's/^# \{0,1\}//'; }
+usage() {
+  local self; self="$(readlink -f "${BASH_SOURCE[0]}")"
+  sed -n '3,/^# omarchy:/p' "$self" | grep -v '^# omarchy:' | sed 's/^# \{0,1\}//'
+}
 
 case "${1:-open}" in
   open | "") open_url "$(app_base)" ;;
@@ -177,6 +182,21 @@ case "${1:-open}" in
     esac ;;
   doctor) omacar_need_env; exec "$OMACAR_PY" "$ROOT/lib/doctor.py" ;;
   live) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/live.py" "$@" ;;
+  prospect) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/prospect.py" "$@" ;;
+  profile)
+    omacar_need_env
+    "$OMACAR_PY" -c "
+import sys; sys.path.insert(0, '$ROOT/lib')
+import profile
+names = profile.available()
+if not names:
+    print('no profiles yet — run: omacar prospect')
+for n in names:
+    d, path = profile.load(n)
+    pids = d.get('pid', []) if d else []
+    ok = sum(1 for p in pids if p.get('confidence') == 'validated')
+    print(f'  {n}  {len(pids)} pid(s), {ok} validated  {path}')
+" ;;
   daemon)
     case "${2:-status}" in
       start) daemon_start ;;
