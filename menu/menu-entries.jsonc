@@ -1,2 +1,5 @@
-"omacar": {"icon":"󰀻","label":"OmaCar","aliases":["omacar"],"description":"Live OBD-II diagnostics for your car"},
+"omacar": {"icon":"󰄋","label":"OmaCar","aliases":["car","obd","diagnostics"],"description":"Live OBD-II diagnostics for your car"},
 "omacar.open": {"icon":"󰏌","label":"Open OmaCar","action":"__CMD__ open"},
+"omacar.doctor": {"icon":"󰗋","label":"Diagnose Connection","aliases":["doctor"],"action":"omarchy-launch-floating-terminal-with-presentation '__CMD__ doctor'"},
+"omacar.live": {"icon":"󰓅","label":"Live Readings","aliases":["live","gauges"],"action":"omarchy-launch-floating-terminal-with-presentation '__CMD__ live'"},
+"omacar.bench": {"icon":"󰙨","label":"Bench Emulator","aliases":["bench","emulator","test"],"action":"omarchy-launch-floating-terminal-with-presentation '__CMD__ bench start'"},

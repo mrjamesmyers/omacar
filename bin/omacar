@@ -1,14 +1,21 @@
 #!/bin/bash
 #
-# omacar — Live OBD-II diagnostics for your car
+# omacar — Live OBD-II diagnostics for your car.
 #
-#   omacar                 open the app (or focus it if it's already up)
-#   omacar server status|stop
-#                           the loopback server the app is served from
-#   omacar help            this text
+#   omacar                    open the app (or focus it if it's already up)
+#   omacar setup              build the Python environment (python-obd + emulator)
+#   omacar bench start|stop|status
+#                             the ELM327 bench emulator — develop without a car
+#   omacar doctor             adapter, protocol, supported PIDs, stored faults
+#   omacar live [PID...]      stream readings to the terminal
+#   omacar state              key=value status for the bar widget
+#   omacar server status|stop the loopback server the app is served from
+#   omacar help               this text
 #
 # omarchy:summary=Live OBD-II diagnostics for your car
 # omarchy:name=omacar
+# omarchy:group=car
+# omarchy:examples=omacar doctor | omacar bench start | omacar live RPM SPEED
 
 set -euo pipefail
 
@@ -17,6 +24,8 @@ APP="$ROOT/share/app.html"
 MARK="omacar-server"
 PORTS="7560 7561 7562 7563 7564"
 
+source "$ROOT/lib/env.sh"
+
 open_url() {
   setsid -f omarchy-launch-browser "$1" >/dev/null 2>&1 ||
     setsid -f xdg-open "$1" >/dev/null 2>&1
@@ -24,8 +33,6 @@ open_url() {
 
 ours() { [[ "$(curl -fsS --max-time 1 "http://127.0.0.1:$1/.mark" 2>/dev/null)" == *"$MARK"* ]]; }
 
-# Served over http, never file://. A null origin breaks embedded YouTube
-# (error 153), localStorage partitioning, and fetch() against our own /api.
 app_base() {
   local p i
   for p in $PORTS; do ours "$p" && { echo "http://127.0.0.1:$p/app.html"; return; }; done
@@ -53,16 +60,81 @@ server_stop() {
 
 server_status() {
   local p
-  for p in $PORTS; do
-    ours "$p" && { echo "running on http://127.0.0.1:$p"; return; }
-  done
+  for p in $PORTS; do ours "$p" && { echo "running on http://127.0.0.1:$p"; return; }; done
   echo "not running"
 }
 
-usage() { sed -n '3,10p' "$(readlink -f "${BASH_SOURCE[0]}")" | sed 's/^# \{0,1\}//'; }
+# --- bench emulator ---------------------------------------------------------
+
+BENCH_OUT="$OMACAR_STATE/bench-out"
+BENCH_PTY="$OMACAR_STATE/bench-pty"
+
+bench_pid() { pgrep -f "$OMACAR_VENV/bin/[e]lm" | head -1; }
+
+bench_start() {
+  [[ -x "$OMACAR_ELM" ]] || { echo "omacar: bench emulator not installed — run: omacar setup" >&2; exit 1; }
+  if [[ -n "$(bench_pid)" ]]; then
+    echo "bench already running on $(cat "$BENCH_PTY" 2>/dev/null)"
+    return
+  fi
+  rm -f "$BENCH_OUT" "$BENCH_PTY"
+  setsid -f "$OMACAR_ELM" -b "$BENCH_OUT" -s "${1:-car}" >/dev/null 2>&1
+  local i
+  for i in $(seq 1 30); do
+    sleep 0.3
+    [[ -s "$BENCH_OUT" ]] && { head -1 "$BENCH_OUT" >"$BENCH_PTY"; break; }
+  done
+  if [[ -s "$BENCH_PTY" ]]; then
+    echo "bench running on $(cat "$BENCH_PTY")  (scenario: ${1:-car})"
+  else
+    echo "omacar: bench emulator did not report a port" >&2; exit 1
+  fi
+}
+
+bench_stop() {
+  local pid; pid=$(bench_pid)
+  [[ -z "$pid" ]] && { echo "bench not running"; return; }
+  kill "$pid" 2>/dev/null || true
+  rm -f "$BENCH_PTY"
+  echo "bench stopped"
+}
+
+bench_status() {
+  if [[ -n "$(bench_pid)" ]]; then echo "running on $(cat "$BENCH_PTY" 2>/dev/null)"; else echo "not running"; fi
+}
+
+# --- bar widget contract ----------------------------------------------------
+
+# Cheap and non-blocking: reads the cache doctor/live leave behind. Opening a
+# serial connection here would stall the bar for seconds on every poll.
+state() {
+  local cache="$OMACAR_STATE/status.json"
+  local connected=0 protocol="" port=""
+  if [[ -n "$(bench_pid)" ]]; then port="bench"; fi
+  if [[ -f "$cache" ]] && command -v jq >/dev/null; then
+    connected=$(jq -r 'if .connected then 1 else 0 end' "$cache" 2>/dev/null || echo 0)
+    protocol=$(jq -r '.protocol // ""' "$cache" 2>/dev/null)
+    [[ -z "$port" ]] && port=$(jq -r '.port // ""' "$cache" 2>/dev/null)
+  fi
+  echo "active=$connected"
+  echo "port=$port"
+  echo "protocol=$protocol"
+}
+
+usage() { sed -n '3,17p' "$(readlink -f "${BASH_SOURCE[0]}")" | sed 's/^# \{0,1\}//'; }
 
 case "${1:-open}" in
   open | "") open_url "$(app_base)" ;;
+  setup) omacar_setup_env ;;
+  bench)
+    case "${2:-status}" in
+      start) shift 2 || true; bench_start "${1:-car}" ;;
+      stop) bench_stop ;;
+      *) bench_status ;;
+    esac ;;
+  doctor) omacar_need_env; exec "$OMACAR_PY" "$ROOT/lib/doctor.py" ;;
+  live) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/live.py" "$@" ;;
+  state) state ;;
   server) case "${2:-status}" in stop) server_stop ;; *) server_status ;; esac ;;
   help | --help | -h) usage ;;
   *) echo "omacar: unknown command '$1' (try: omacar help)" >&2; exit 1 ;;
