@@ -9,7 +9,7 @@ but everything below P2 is generic OBD-II and works on any car built since 1996.
     ./install.sh --bind   also bind Super+Shift+C
     ./test/smoke.sh       install into a scratch HOME and verify, safely
 
-## Status: P0 — bench rig
+## Status: P1 — the cluster
 
 You do not need the adapter, or the car, to develop this.
 
@@ -22,6 +22,36 @@ You do not need the adapter, or the car, to develop this.
 `doctor` against the emulator negotiates **ISO 15765-4 (CAN 11/500)** — the
 same protocol Honda has used since 2008, so the bench is a fair rehearsal for
 the real car.
+
+Then the cluster itself:
+
+    omacar daemon start   one long-lived connection, tiered polling
+    omacar                open the cluster
+
+### The ambient meter
+
+The ring borrows the CR-Z's own language: it glows blue in NORMAL and ECON,
+greens as you drive efficiently, and commits to red in SPORT. **Colour is
+efficiency; the bright arc is road speed**; a slim inner arc is engine speed.
+
+Efficiency is not a vibe. Where the ECU reports MAF and speed, OmaCar computes
+real instantaneous economy — mass air flow over the stoichiometric ratio gives
+fuel mass flow, and that over road speed gives L/100km — then reads it against
+a band (4.5 good, 9.5 poor) tuned for this car. Only when MAF is unavailable
+does it fall back to a load-and-throttle estimate, and **the status bar says
+which one it used**. A gauge that looks authoritative while guessing is worse
+than one that admits it estimated.
+
+Preview it without a car: `?demo=1`, `?mode=sport`, `?units=metric`.
+
+### One process owns the serial port
+
+Opening an OBD connection costs 5-8 seconds. So exactly one process holds it —
+the daemon — and everything else reads what it publishes: the UI polls
+`/api/live`, the bar widget reads a cache. Nothing else opens a connection.
+
+    ~/.local/state/omacar/live.json      current sample, rewritten atomically
+    ~/.local/state/omacar/telemetry.db   one row per second, for trips
 
 ## Environment notes
 
@@ -40,11 +70,6 @@ permission error.
 
 ## Where it goes next
 
-- **P1 — the cluster.** A polling daemon at tiered rates into SQLite, and the
-  CR-Z's own *ambient meter* in `share/app.html`: the ring that glows blue in
-  NORMAL, greens as you drive efficiently, and turns red in SPORT. WebGL at
-  `highp` — at `mediump` the hash collapses on this iGPU and renders black,
-  and headless testing hides it.
 - **P2 — the CR-Z profile.** IMA state of charge, assist vs. regen, and battery
   temperature live behind Honda-specific PIDs that no off-the-shelf tool ships.
   A PID prospector sweeps Mode 22 across the hybrid ECU headers, logs what
@@ -53,6 +78,14 @@ permission error.
   community.
 - **P3 — faults and readiness.** DTCs in plain English, freeze frames, and
   readiness monitors.
+
+## Verify shader changes on the real display
+
+The ring's fragment shader declares `precision highp float`. At `mediump` the
+hash collapses on this machine's integrated GPU and the ring renders black —
+and **software/headless GL renders it correctly, which hides the bug**. The
+headless screenshots used during development therefore cannot prove the shader
+is right; open it on the actual monitor after touching the GLSL.
 
 ## Two safety rules, baked in from the start
 

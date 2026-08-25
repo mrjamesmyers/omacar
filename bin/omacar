@@ -8,6 +8,8 @@
 #                             the ELM327 bench emulator — develop without a car
 #   omacar doctor             adapter, protocol, supported PIDs, stored faults
 #   omacar live [PID...]      stream readings to the terminal
+#   omacar daemon start|stop|status
+#                             the polling daemon that feeds the cluster
 #   omacar state              key=value status for the bar widget
 #   omacar server status|stop the loopback server the app is served from
 #   omacar help               this text
@@ -105,6 +107,45 @@ bench_status() {
   if [[ -n "$(bench_pid)" ]]; then echo "running on $(cat "$BENCH_PTY" 2>/dev/null)"; else echo "not running"; fi
 }
 
+# --- polling daemon ---------------------------------------------------------
+
+# One process owns the serial connection. The UI reads its snapshot; nothing
+# else opens a connection, because doing so costs 5-8 seconds every time.
+
+DAEMON_PID="$OMACAR_STATE/daemon.pid"
+
+daemon_pid() {
+  [[ -f "$DAEMON_PID" ]] || return 1
+  local pid; pid=$(cat "$DAEMON_PID" 2>/dev/null)
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && echo "$pid"
+}
+
+daemon_start() {
+  omacar_need_env
+  if daemon_pid >/dev/null; then echo "daemon already running (pid $(daemon_pid))"; return; fi
+  setsid -f "$OMACAR_PY" "$ROOT/lib/daemon.py" >"$OMACAR_STATE/daemon.log" 2>&1
+  local i
+  for i in $(seq 1 40); do
+    sleep 0.25
+    daemon_pid >/dev/null && { echo "daemon running (pid $(daemon_pid))"; return; }
+  done
+  echo "omacar: daemon did not start — see $OMACAR_STATE/daemon.log" >&2
+  tail -3 "$OMACAR_STATE/daemon.log" >&2 2>/dev/null || true
+  exit 1
+}
+
+daemon_stop() {
+  local pid; pid=$(daemon_pid) || { echo "daemon not running"; return; }
+  kill "$pid" 2>/dev/null || true
+  rm -f "$DAEMON_PID"
+  echo "daemon stopped"
+}
+
+daemon_status() {
+  local pid
+  if pid=$(daemon_pid); then echo "running (pid $pid)"; else echo "not running"; fi
+}
+
 # --- bar widget contract ----------------------------------------------------
 
 # Cheap and non-blocking: reads the cache doctor/live leave behind. Opening a
@@ -123,7 +164,7 @@ state() {
   echo "protocol=$protocol"
 }
 
-usage() { sed -n '3,17p' "$(readlink -f "${BASH_SOURCE[0]}")" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,19p' "$(readlink -f "${BASH_SOURCE[0]}")" | sed 's/^# \{0,1\}//'; }
 
 case "${1:-open}" in
   open | "") open_url "$(app_base)" ;;
@@ -136,6 +177,12 @@ case "${1:-open}" in
     esac ;;
   doctor) omacar_need_env; exec "$OMACAR_PY" "$ROOT/lib/doctor.py" ;;
   live) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/live.py" "$@" ;;
+  daemon)
+    case "${2:-status}" in
+      start) daemon_start ;;
+      stop) daemon_stop ;;
+      *) daemon_status ;;
+    esac ;;
   state) state ;;
   server) case "${2:-status}" in stop) server_stop ;; *) server_status ;; esac ;;
   help | --help | -h) usage ;;
