@@ -1,0 +1,38 @@
+<!-- OmaCar — one self-contained page, no build step.
+     Served over http://127.0.0.1 by lib/serve.py, never file://. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OmaCar</title>
+<style>
+  :root {
+    --bg: #F1F4F3; --surface: #FFF; --ink: #16211F; --muted: #5F6E6A;
+    --line: #D6DEDB; --accent: #0E6E63;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0E1413; --surface: #161F1D; --ink: #E9F0ED; --muted: #93A5A0;
+      --line: #243230; --accent: #57C6B1;
+    }
+  }
+  * { box-sizing: border-box }
+  body {
+    margin: 0; padding: 48px 24px; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 system-ui, sans-serif;
+  }
+  main { max-width: 900px; margin: 0 auto }
+  h1 { font-size: 2rem; letter-spacing: -.02em; margin: 0 0 .3rem }
+  p.lede { color: var(--muted); margin: 0 0 32px }
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 4px; padding: 20px 22px;
+  }
+</style>
+<main>
+  <h1>OmaCar</h1>
+  <p class="lede">Live OBD-II diagnostics for your car</p>
+  <div class="card">
+    <p>Replace this with the app. The server is at <code>lib/serve.py</code>;
+       add <code>/api/*</code> endpoints there and <code>fetch()</code> them
+       from here — same origin, so no CORS.</p>
+  </div>
+</main>

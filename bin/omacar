@@ -1,0 +1,69 @@
+#!/bin/bash
+#
+# omacar — Live OBD-II diagnostics for your car
+#
+#   omacar                 open the app (or focus it if it's already up)
+#   omacar server status|stop
+#                           the loopback server the app is served from
+#   omacar help            this text
+#
+# omarchy:summary=Live OBD-II diagnostics for your car
+# omarchy:name=omacar
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+APP="$ROOT/share/app.html"
+MARK="omacar-server"
+PORTS="7560 7561 7562 7563 7564"
+
+open_url() {
+  setsid -f omarchy-launch-browser "$1" >/dev/null 2>&1 ||
+    setsid -f xdg-open "$1" >/dev/null 2>&1
+}
+
+ours() { [[ "$(curl -fsS --max-time 1 "http://127.0.0.1:$1/.mark" 2>/dev/null)" == *"$MARK"* ]]; }
+
+# Served over http, never file://. A null origin breaks embedded YouTube
+# (error 153), localStorage partitioning, and fetch() against our own /api.
+app_base() {
+  local p i
+  for p in $PORTS; do ours "$p" && { echo "http://127.0.0.1:$p/app.html"; return; }; done
+  command -v python3 >/dev/null || { echo "file://$APP"; return; }
+  for p in $PORTS; do
+    ss -ltn "sport = :$p" 2>/dev/null | tail -n +2 | grep -q . && continue
+    setsid -f python3 "$ROOT/lib/serve.py" "$p" "$ROOT/share" >/dev/null 2>&1
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+      sleep 0.2
+      ours "$p" && { echo "http://127.0.0.1:$p/app.html"; return; }
+    done
+  done
+  echo "file://$APP"
+}
+
+server_stop() {
+  local p pid n=0
+  for p in $PORTS; do
+    ours "$p" || continue
+    pid=$(ss -lptn "sport = :$p" 2>/dev/null | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2)
+    [[ -n "$pid" ]] && kill "$pid" 2>/dev/null && n=$((n + 1))
+  done
+  echo "stopped $n server(s)"
+}
+
+server_status() {
+  local p
+  for p in $PORTS; do
+    ours "$p" && { echo "running on http://127.0.0.1:$p"; return; }
+  done
+  echo "not running"
+}
+
+usage() { sed -n '3,10p' "$(readlink -f "${BASH_SOURCE[0]}")" | sed 's/^# \{0,1\}//'; }
+
+case "${1:-open}" in
+  open | "") open_url "$(app_base)" ;;
+  server) case "${2:-status}" in stop) server_stop ;; *) server_status ;; esac ;;
+  help | --help | -h) usage ;;
+  *) echo "omacar: unknown command '$1' (try: omacar help)" >&2; exit 1 ;;
+esac

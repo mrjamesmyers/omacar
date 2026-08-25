@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "omacar",
+  "name": "OmaCar",
+  "version": "0.1.0",
+  "author": "prezziej",
+  "license": "MIT",
+  "description": "Live OBD-II diagnostics for your car",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Panel.qml" },
+  "barWidget": {
+    "displayName": "OmaCar",
+    "description": "Live OBD-II diagnostics for your car",
+    "category": "Utility",
+    "defaultSection": "right",
+    "allowMultiple": false
+  }
+}

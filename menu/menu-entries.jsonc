@@ -1,0 +1,2 @@
+"omacar": {"icon":"󰀻","label":"OmaCar","aliases":["omacar"],"description":"Live OBD-II diagnostics for your car"},
+"omacar.open": {"icon":"󰏌","label":"Open OmaCar","action":"__CMD__ open"},
