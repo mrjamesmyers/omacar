@@ -1,0 +1,104 @@
+{
+  "_about": "Functional tests — commanding the car rather than only asking it. Generic OBD-II barely has this: Mode 08 is in the standard and almost nobody implements it, so on a real car every test here needs the manufacturer's own protocol. Each entry says so. Against the simulator they genuinely actuate: the effect is applied to the engine model, so the graph, the recorded samples and the advisor all see the real consequence rather than a display trick.",
+  "_version": 1,
+
+  "sequences": [
+    {
+      "id": "cylinder_balance",
+      "name": "Cylinder balance",
+      "group": "Engine",
+      "what": "Silences each injector in turn at idle and measures how far the engine speed falls.",
+      "why": "A cylinder that is not contributing does not drop the idle when you switch it off — because it was not doing anything to begin with. Four numbers side by side find a weak cylinder in ninety seconds, and they find it without a compression gauge, without pulling a plug and without guessing.",
+      "needs": "Engine running, fully warm, vehicle stationary, transmission in neutral.",
+      "caution": "Each cylinder is off for a few seconds only. Unburnt fuel reaching a hot catalytic converter destroys it, which is why the steps are short and why a misfiring engine should be fixed before this is run at length.",
+      "protocol": "manufacturer",
+      "steps": ["injector_kill_1", "injector_kill_2", "injector_kill_3", "injector_kill_4"],
+      "seconds": 5,
+      "watch": ["rpm", "load"],
+      "reads": "rpm",
+      "expect": "Every cylinder should drop the idle by a similar amount. A cylinder dropping materially less than the others is the weak one — suspect ignition, injector or compression, in that order.",
+      "tolerance": 0.2
+    }
+  ],
+
+  "tests": [
+    {
+      "id": "fan_high",
+      "name": "Cooling fan — high",
+      "group": "Cooling",
+      "what": "Commands the radiator fan to full speed.",
+      "why": "An engine that runs hot in traffic and fine on the move is a fan problem until proven otherwise. Commanding it separates a dead fan, a dead relay and a temperature sensor that never asks for it.",
+      "needs": "Ignition on. The engine does not have to be running.",
+      "caution": "Keep hands and anything loose clear of the fan before commanding it. It will start without warning.",
+      "protocol": "manufacturer",
+      "seconds": 30,
+      "watch": ["coolant", "load"],
+      "expect": "The fan should run immediately and the coolant temperature should begin to fall within a few seconds. Nothing happening points at the relay or the fan itself, not at the sensor."
+    },
+    {
+      "id": "fan_low",
+      "name": "Cooling fan — low",
+      "group": "Cooling",
+      "what": "Commands the radiator fan to its low speed.",
+      "why": "Two speeds means two circuits. A fan that runs on high but not low is a resistor or a relay, not a motor.",
+      "needs": "Ignition on.",
+      "caution": "As above — the fan starts without warning.",
+      "protocol": "manufacturer",
+      "seconds": 30,
+      "watch": ["coolant"],
+      "expect": "Audible low-speed running and a slower fall in coolant temperature than the high-speed test."
+    },
+    {
+      "id": "evap_purge",
+      "name": "EVAP purge valve",
+      "group": "Emissions",
+      "what": "Opens the canister purge valve at idle.",
+      "why": "Purge faults set P0441, P0443 and a family of lean and rich codes that look like everything else. Opening it on command and watching the mixture react proves the valve, the vacuum line and the canister in one step.",
+      "needs": "Engine running, fully warm, at idle.",
+      "caution": "The idle will dip. On a car with a marginal idle it may stall, which is itself a finding.",
+      "protocol": "manufacturer",
+      "seconds": 15,
+      "watch": ["stft", "rpm"],
+      "expect": "Short fuel trim should swing sharply negative as stored vapour enters the intake, and the idle should dip. No reaction at all means no flow: a stuck valve or a blocked line."
+    },
+    {
+      "id": "egr_open",
+      "name": "EGR valve",
+      "group": "Emissions",
+      "what": "Commands the exhaust gas recirculation valve open at idle.",
+      "why": "This is the test that separates a bad EGR valve from blocked EGR passages, and they are very different bills. The valve can be perfect and the ports still coked solid.",
+      "needs": "Engine running, fully warm, at idle.",
+      "caution": "The engine will stumble and may stall. That is the pass condition.",
+      "protocol": "manufacturer",
+      "seconds": 12,
+      "watch": ["rpm", "stft", "load"],
+      "expect": "A clear drop in idle speed and a rough running. A completely unchanged idle means nothing is flowing — the passages are blocked, and a new valve will not fix it."
+    },
+    {
+      "id": "ac_clutch",
+      "name": "A/C compressor clutch",
+      "group": "Engine",
+      "what": "Engages the air conditioning compressor clutch.",
+      "why": "Separates a clutch, a relay and a pressure switch from a system that is simply out of refrigerant and cutting itself out on low pressure.",
+      "needs": "Engine running at idle.",
+      "caution": "Do not run for long with the system empty — the compressor is lubricated by the refrigerant.",
+      "protocol": "manufacturer",
+      "seconds": 20,
+      "watch": ["rpm", "load"],
+      "expect": "An audible clunk, engine load rising by several percent, and the idle control compensating. Nothing means the clutch, its relay or the low-pressure cut-out."
+    },
+    {
+      "id": "fuel_pump",
+      "name": "Fuel pump prime",
+      "group": "Fuel",
+      "what": "Runs the fuel pump with the engine off.",
+      "why": "A no-start with no fuel pressure is either the pump, its relay or the immobiliser refusing to let it run. Commanding the pump directly takes the immobiliser out of the question in one step.",
+      "needs": "Ignition on, engine off.",
+      "caution": "Do not run a dry pump — it is cooled by the fuel around it.",
+      "protocol": "manufacturer",
+      "seconds": 8,
+      "watch": [],
+      "expect": "An audible whirr from the tank for as long as it is commanded, and fuel pressure at the rail. Silence with a good relay and fuse condemns the pump."
+    }
+  ]
+}

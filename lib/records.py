@@ -1,0 +1,508 @@
+"""Everything OmaCar knows about the car, read out of telemetry.db.
+
+One reader, used by the loopback API, by the AI layer and by the CLI, so those
+three can never disagree about what the car said. Read-only and non-blocking
+throughout: the daemon owns writing, and a diagnostic screen that can block on
+a database lock is a diagnostic screen that hangs mid-scan.
+
+The database is metric, because OBD-II is metric on the wire — every PID is
+km/h, °C and grams per second. Display units are a separate question and are
+settled once, at the edge, by `units_for()`.
+"""
+
+import json
+import math
+import os
+import sqlite3
+import time
+from datetime import datetime, timedelta
+
+STATE = os.path.expanduser(
+    os.environ.get("XDG_STATE_HOME", "~/.local/state") + "/omacar")
+DB = os.path.join(STATE, "telemetry.db")
+LIVE = os.path.join(STATE, "live.json")
+CONFIG = os.path.expanduser("~/.config/omarchy/liquid-glass-car.json")
+
+AFR_GASOLINE = 14.7
+FUEL_DENSITY_G_PER_L = 745.0
+MOVING_KPH = 3.0
+MPG_CONSTANT = 235.214583
+
+# Honda's Maintenance Minder counts down rather than up: 15% is "book it",
+# 5% is "now", nought is past due.
+LIFE_SOON = 15
+LIFE_NOW = 5
+
+UNITS = {
+    "imperial": {
+        "system": "imperial", "dist": "mi", "speed": "mph", "econ": "mpg",
+        "vol": "gal", "temp": "°F", "km": 1 / 1.609344,
+        "litre": 1 / 3.785411784, "econ_better": "high",
+    },
+    "metric": {
+        "system": "metric", "dist": "km", "speed": "km/h", "econ": "L/100km",
+        "vol": "L", "temp": "°C", "km": 1.0, "litre": 1.0,
+        "econ_better": "low",
+    },
+}
+
+
+def units_for(name=None):
+    if name is None:
+        try:
+            with open(CONFIG) as f:
+                name = (json.load(f) or {}).get("units")
+        except (OSError, ValueError):
+            name = None
+    return UNITS.get((name or "imperial").lower(), UNITS["imperial"])
+
+
+# The record stays metric; these are the only place it becomes anything else.
+# Distance and volume are scale factors. Economy is NOT — it is a reciprocal,
+# so a lower consumption is a higher mpg, and treating it as a scale reports a
+# thrifty car as a thirsty one. Temperature is an offset as well as a scale.
+
+def to_dist(km, u):
+    return None if km is None else km * u["km"]
+
+
+def to_vol(litres, u):
+    return None if litres is None else litres * u["litre"]
+
+
+def to_econ(lphk, u):
+    """L/100km into the display unit, or None where economy is undefined.
+
+    A car burning nothing has infinite miles per gallon, so nought and missing
+    both come back as None rather than as a very large number.
+    """
+    if lphk is None or lphk <= 0:
+        return None
+    return MPG_CONSTANT / lphk if u["system"] == "imperial" else lphk
+
+
+def to_temp(c, u):
+    if c is None:
+        return None
+    return c * 9.0 / 5.0 + 32.0 if u["system"] == "imperial" else c
+
+
+def connect():
+    if not os.path.exists(DB):
+        return None
+    try:
+        db = sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=2.0)
+        db.row_factory = sqlite3.Row
+        return db
+    except sqlite3.Error:
+        return None
+
+
+def has(db, table):
+    if db is None:
+        return False
+    try:
+        return db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,)).fetchone() is not None
+    except sqlite3.Error:
+        return False
+
+
+def rows(db, sql, args=(), table=None):
+    if db is None or (table and not has(db, table)):
+        return []
+    try:
+        return [dict(r) for r in db.execute(sql, args).fetchall()]
+    except sqlite3.Error:
+        return []
+
+
+def live():
+    try:
+        with open(LIVE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"connected": False, "status": "no daemon"}
+
+
+def status(snap):
+    if not snap.get("connected"):
+        return "offline"
+    v = snap.get("values") or {}
+    if (v.get("SPEED") or 0) > MOVING_KPH:
+        return "driving"
+    if (v.get("RPM") or 0) > 200:
+        return "idling"
+    return "parked"
+
+
+# ---- the car ----------------------------------------------------------------
+
+def vehicle(db):
+    out = {}
+    for r in rows(db, "SELECT k, v FROM vehicle", table="vehicle"):
+        try:
+            out[r["k"]] = json.loads(r["v"])
+        except (ValueError, TypeError):
+            out[r["k"]] = r["v"]
+    if out:
+        out["name"] = (f"{out.get('year', '')} {out.get('make', '')} "
+                       f"{out.get('model', '')}").strip()
+    return out
+
+
+def modules(db):
+    out = rows(db, "SELECT * FROM modules ORDER BY pos", table="modules")
+    for m in out:
+        try:
+            m["codes"] = json.loads(m.get("codes") or "[]")
+        except (ValueError, TypeError):
+            m["codes"] = []
+        m["generic"] = bool(m.get("generic"))
+    return out
+
+
+def ago(stamp):
+    return None if not stamp else max(0, int(time.time() - stamp))
+
+
+def faults(db):
+    out = rows(db, "SELECT * FROM faults", table="faults")
+    rank = {"stored": 0, "permanent": 1, "pending": 2, "cleared": 3}
+    for f in out:
+        f["ago"] = ago(f.get("last_seen"))
+        f["since"] = ago(f.get("first_seen"))
+        f["active"] = f.get("status") in ("stored", "pending", "permanent")
+        try:
+            f["freeze"] = json.loads(f["freeze"]) if f.get("freeze") else None
+        except (ValueError, TypeError):
+            f["freeze"] = None
+    out.sort(key=lambda f: (rank.get(f.get("status"), 4),
+                            -(f.get("last_seen") or 0)))
+
+    # Attach the module each code lives in, so a scan report can group by
+    # control unit the way the car actually does.
+    where = {}
+    for m in modules(db):
+        for c in m["codes"]:
+            where[c] = {"id": m["id"], "name": m["name"]}
+    for f in out:
+        f["module"] = where.get(f["code"])
+    return out
+
+
+def readiness(db):
+    out = rows(db, "SELECT * FROM readiness ORDER BY pos", table="readiness")
+    for r in out:
+        r["supported"] = bool(r.get("supported"))
+        r["complete"] = bool(r.get("complete"))
+    supported = [r for r in out if r["supported"]]
+    incomplete = [r for r in supported if not r["complete"]]
+    return {
+        "monitors": out,
+        "supported": len(supported),
+        "incomplete": len(incomplete),
+        # Most states allow one incomplete non-continuous monitor on an
+        # OBD-II car; two is a fail everywhere. Reported as the rule rather
+        # than as a verdict for one jurisdiction we cannot know.
+        "ready": len(incomplete) == 0,
+        "marginal": len(incomplete) == 1,
+        "blocking": [r["id"] for r in incomplete],
+    }
+
+
+def mode06(db):
+    out = rows(db, "SELECT * FROM mode06 ORDER BY pos", table="mode06")
+    for m in out:
+        lo, hi, v = m.get("lo"), m.get("hi"), m.get("value")
+        m["pass"] = True
+        m["headroom"] = None
+        if v is None:
+            m["pass"] = None
+        else:
+            if hi is not None and v > hi:
+                m["pass"] = False
+            if lo is not None and v < lo:
+                m["pass"] = False
+            # How close to the limit, as a fraction. This is the number that
+            # turns Mode 06 from a pass/fail list into a prediction: a test at
+            # 95% of its limit has passed and is also about to stop passing.
+            if hi is not None and hi > 0:
+                m["headroom"] = max(0.0, min(1.5, v / hi))
+            elif lo is not None and lo > 0:
+                m["headroom"] = max(0.0, min(1.5, lo / v)) if v else None
+    return out
+
+
+SHORT_NAMES = [
+    ("oil", "OIL"), ("coolant", "COOLANT"), ("tire", "TIRES"), ("tyre", "TIRES"),
+    ("brake fluid", "BRAKE FL"), ("brake pad", "PADS"), ("spark", "PLUGS"),
+    ("transmission", "TRANS"), ("air cleaner", "AIR"), ("ima", "IMA"),
+    ("12 v", "12V"), ("battery", "BATTERY"),
+]
+
+
+def short_name(item):
+    low = item.lower()
+    for needle, name in SHORT_NAMES:
+        if needle in low:
+            return name
+    return item.split(" ")[0].upper()
+
+
+def service(db, odometer):
+    items = rows(db, "SELECT * FROM service", table="service")
+    if not items:
+        return None
+    now = time.time()
+    for s in items:
+        used_km = (odometer - s["last_km"]) if odometer and s["last_km"] else None
+        used_days = (now - s["last_at"]) / 86400.0 if s["last_at"] else None
+        frac_km = (used_km / s["interval_km"]
+                   if s.get("interval_km") and used_km is not None else None)
+        frac_days = (used_days / s["interval_days"]
+                     if s.get("interval_days") and used_days is not None else None)
+        frac = max([f for f in (frac_km, frac_days) if f is not None] or [0.0])
+        s["life"] = int(round((1.0 - frac) * 100))
+        s["by"] = "distance" if frac_km is not None and frac == frac_km else "time"
+        s["km_left"] = round(s["interval_km"] - used_km) if frac_km is not None else None
+        s["days_left"] = (int(round(s["interval_days"] - used_days))
+                          if frac_days is not None else None)
+        s["due_at_km"] = (round(s["last_km"] + s["interval_km"])
+                          if s.get("interval_km") else None)
+        s["due_on"] = (datetime.fromtimestamp(
+            s["last_at"] + s["interval_days"] * 86400).strftime("%Y-%m-%d")
+            if s.get("interval_days") and s.get("last_at") else None)
+        s["last_on"] = (datetime.fromtimestamp(s["last_at"]).strftime("%Y-%m-%d")
+                        if s.get("last_at") else None)
+        s["state"] = ("overdue" if s["life"] <= 0 else
+                      "now" if s["life"] <= LIFE_NOW else
+                      "soon" if s["life"] <= LIFE_SOON else "ok")
+        s["short"] = short_name(s["item"])
+    items.sort(key=lambda s: s["life"])
+    return {
+        "items": items,
+        "next": items[0],
+        "oil": next((s for s in items if s["item"].lower().startswith("engine oil")), None),
+        "overdue": sum(1 for s in items if s["state"] == "overdue"),
+        "due": sum(1 for s in items if s["state"] in ("overdue", "now", "soon")),
+    }
+
+
+# ---- how it has been driven -------------------------------------------------
+
+def days(db):
+    return rows(db, "SELECT * FROM days ORDER BY day ASC", table="days")
+
+
+def window_of(series, first_day=None, n=None):
+    chosen = series[-n:] if n is not None else [d for d in series if d["day"] >= first_day]
+    km = sum(d["km"] or 0 for d in chosen)
+    litres = sum(d["litres"] or 0 for d in chosen)
+    return {
+        "km": round(km, 1),
+        "litres": round(litres, 2),
+        # Fuel over distance for the whole window, never the mean of the daily
+        # figures — a two-mile errand would otherwise weigh as much as a
+        # three-hundred-mile run.
+        "lphk": round(litres / km * 100.0, 2) if km > 0.5 else None,
+        "cost": round(sum(d["cost"] or 0 for d in chosen), 2),
+        "moving_s": int(sum(d["moving_s"] or 0 for d in chosen)),
+        "engine_s": int(sum(d["engine_s"] or 0 for d in chosen)),
+        "trips": int(sum(d["trips"] or 0 for d in chosen)),
+        "top_kph": round(max([d["top_kph"] or 0 for d in chosen] or [0])),
+        "days": len([d for d in chosen if (d["km"] or 0) > 0.5]),
+        "span": len(chosen),
+    }
+
+
+def performance(series):
+    if not series:
+        return None
+    today = datetime.now().date()
+
+    def pair(first, prev_first=None, prev_end=None):
+        w = window_of(series, first_day=first)
+        if prev_first is not None:
+            prev = [d for d in series if prev_first <= d["day"] <= prev_end]
+            pkm = sum(d["km"] or 0 for d in prev)
+            pl = sum(d["litres"] or 0 for d in prev)
+            w["prev"] = {
+                "km": round(pkm, 1),
+                "lphk": round(pl / pkm * 100.0, 2) if pkm > 0.5 else None,
+                "cost": round(sum(d["cost"] or 0 for d in prev), 2),
+            }
+        return w
+
+    iso = today.isoformat()
+    yday = (today - timedelta(days=1)).isoformat()
+    month_first = today.replace(day=1).isoformat()
+    lm_end = today.replace(day=1) - timedelta(days=1)
+    out = {
+        "day": pair(iso, yday, yday),
+        "week": pair((today - timedelta(days=6)).isoformat(),
+                     (today - timedelta(days=13)).isoformat(),
+                     (today - timedelta(days=7)).isoformat()),
+        "month": pair(month_first, lm_end.replace(day=1).isoformat(), lm_end.isoformat()),
+        "year": pair(today.replace(month=1, day=1).isoformat()),
+        "rolling_year": window_of(series, n=365),
+    }
+
+    months = {}
+    for d in series:
+        m = months.setdefault(d["day"][:7], {"km": 0.0, "litres": 0.0})
+        m["km"] += d["km"] or 0
+        m["litres"] += d["litres"] or 0
+    out["months"] = [
+        {"month": k, "km": round(v["km"], 1),
+         "lphk": round(v["litres"] / v["km"] * 100.0, 2) if v["km"] > 0.5 else None}
+        for k, v in sorted(months.items())][-12:]
+    out["odometer"] = series[-1].get("odo")
+    out["since"] = series[0]["day"]
+    out["days"] = series[-60:]
+    return out
+
+
+def trips(db, n=20):
+    return rows(db, "SELECT * FROM trips ORDER BY t0 DESC LIMIT ?", (n,),
+                table="trips")
+
+
+# ---- the sample stream ------------------------------------------------------
+
+SAMPLE_COLS = ["t", "rpm", "speed", "load", "throttle", "coolant", "intake",
+               "maf", "stft", "ltft", "timing", "lphk", "eff"]
+
+
+def samples(db, since=None, until=None, limit=4000, step=1):
+    """Raw rows over a span, thinned so a long span still fits in a graph."""
+    if db is None:
+        return []
+    where, args = [], []
+    if since is not None:
+        where.append("t >= ?")
+        args.append(since)
+    if until is not None:
+        where.append("t <= ?")
+        args.append(until)
+    sql = "SELECT " + ",".join(SAMPLE_COLS) + " FROM samples"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY t ASC"
+    out = rows(db, sql, tuple(args))
+    if step > 1:
+        out = out[::step]
+    if len(out) > limit:
+        # Decimate rather than truncate: the shape of the whole span is what a
+        # graph is for, and the last N rows of a drive are not the drive.
+        k = math.ceil(len(out) / limit)
+        out = out[::k]
+    return out
+
+
+def stats(series, cols=None):
+    """Min / max / mean / last per channel, which is what an AI can reason over.
+
+    Handing a language model ten thousand raw rows is expensive and it reads
+    them badly. Handing it the shape of each channel — and the few excursions
+    that matter — is cheap and it reads that well.
+    """
+    cols = cols or [c for c in SAMPLE_COLS if c != "t"]
+    out = {}
+    for c in cols:
+        vals = [r[c] for r in series if r.get(c) is not None]
+        if not vals:
+            continue
+        vals_sorted = sorted(vals)
+        n = len(vals_sorted)
+        out[c] = {
+            "n": n,
+            "min": round(vals_sorted[0], 2),
+            "max": round(vals_sorted[-1], 2),
+            "mean": round(sum(vals) / n, 2),
+            "p05": round(vals_sorted[int(n * 0.05)], 2),
+            "p50": round(vals_sorted[n // 2], 2),
+            "p95": round(vals_sorted[min(n - 1, int(n * 0.95))], 2),
+            "last": round(vals[-1], 2),
+        }
+    return out
+
+
+# ---- saved work -------------------------------------------------------------
+
+def records(db, kind=None, n=50):
+    sql = "SELECT * FROM records"
+    args = ()
+    if kind:
+        sql += " WHERE kind = ?"
+        args = (kind,)
+    sql += " ORDER BY at DESC LIMIT ?"
+    args = args + (n,)
+    out = rows(db, sql, args, table="records")
+    for r in out:
+        try:
+            r["payload"] = json.loads(r["payload"]) if r.get("payload") else None
+        except (ValueError, TypeError):
+            r["payload"] = None
+    return out
+
+
+def write_record(kind, label, payload, t0=None, t1=None, odo=None):
+    """Append to the record book. The only write in this module, and it opens
+    its own connection so the read path stays read-only."""
+    os.makedirs(STATE, exist_ok=True)
+    db = sqlite3.connect(DB, timeout=5.0)
+    try:
+        db.execute("""CREATE TABLE IF NOT EXISTS records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, at REAL,
+            odo REAL, label TEXT, t0 REAL, t1 REAL, payload TEXT)""")
+        cur = db.execute(
+            "INSERT INTO records (kind, at, odo, label, t0, t1, payload) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (kind, time.time(), odo, label, t0, t1,
+             json.dumps(payload) if payload is not None else None))
+        db.commit()
+        return cur.lastrowid
+    finally:
+        db.close()
+
+
+# ---- one call for the whole car ---------------------------------------------
+
+def snapshot(include_samples=False):
+    """Everything, in one read. The API and the AI layer both start here."""
+    db = connect()
+    snap = live()
+    v = vehicle(db)
+    series = days(db)
+    perf = performance(series)
+    odo = (snap.get("odometer_km") or (perf or {}).get("odometer")
+           or v.get("odometer_km"))
+    f = faults(db)
+    out = {
+        "checked": int(time.time()),
+        "units": units_for(),
+        "connected": bool(snap.get("connected")),
+        "simulated": bool(snap.get("simulated") or v.get("simulated")),
+        "status": status(snap),
+        "stale": (max(0, int(time.time() - snap["t"])) if snap.get("t") else None),
+        "vehicle": v,
+        "name": v.get("name", ""),
+        "odometer": round(odo, 1) if odo else None,
+        "live": snap,
+        "modules": modules(db),
+        "faults": f,
+        "active_faults": [x for x in f if x["active"]],
+        "readiness": readiness(db),
+        "mode06": mode06(db),
+        "service": service(db, odo),
+        "perf": perf,
+        "trips": trips(db, 12),
+        "have_history": bool(series),
+    }
+    if include_samples:
+        out["samples"] = samples(db, since=time.time() - 3600, limit=1200)
+    if db is not None:
+        db.close()
+    return out

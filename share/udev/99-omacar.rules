@@ -1,0 +1,46 @@
+# OmaCar — a stable name for the OBD adapter, and the daemon started when it
+# appears.
+#
+# Two things this fixes:
+#
+#   /dev/ttyUSB0 is not stable. Plug in anything else that presents a serial
+#   port and the adapter becomes ttyUSB1, and every tool that hardcoded the
+#   first one is now talking to a GPS puck. The SYMLINK below gives it a name
+#   that means what it says.
+#
+#   Nobody wants to start a daemon by hand after getting into a car.
+#   SYSTEMD_USER_WANTS asks the logged-in user's systemd to start the daemon
+#   when the device shows up, and to stop caring when it goes.
+#
+# Installed by: omacar hotplug install
+#
+# The device matches below cover the adapters people actually own. Add your own
+# with the output of: udevadm info -a -n /dev/ttyUSB0 | head -30
+
+ACTION!="add|change", GOTO="omacar_end"
+SUBSYSTEM!="tty", GOTO="omacar_end"
+
+# FTDI FT232R — OBDLink SX, OBDLink EX, and most good wired cables.
+ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", ENV{OMACAR_ADAPTER}="1"
+# FTDI FT231X, used by some newer OBDLink hardware.
+ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6015", ENV{OMACAR_ADAPTER}="1"
+# CH340/CH341 — the chip in most inexpensive ELM327 clones.
+ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", ENV{OMACAR_ADAPTER}="1"
+ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="5523", ENV{OMACAR_ADAPTER}="1"
+# Prolific PL2303, the other common clone chip.
+ATTRS{idVendor}=="067b", ATTRS{idProduct}=="2303", ENV{OMACAR_ADAPTER}="1"
+# Silicon Labs CP210x.
+ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ENV{OMACAR_ADAPTER}="1"
+
+ENV{OMACAR_ADAPTER}!="1", GOTO="omacar_end"
+
+# A name that does not move, and access without being in the serial group.
+SYMLINK+="obd"
+TAG+="uaccess"
+
+# Hand it to the logged-in user's systemd. `omacar-daemon.service` is a user
+# unit; installing this rule without that unit is harmless.
+TAG+="systemd"
+ENV{SYSTEMD_USER_WANTS}+="omacar-daemon.service"
+
+LABEL="omacar_end"

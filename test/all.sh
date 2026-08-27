@@ -16,4 +16,8 @@ else
   echo "  (skipping prospector tests — run: omacar setup)"
 fi
 
+# The workshop's own logic — units, the service countdown, Mode 06 verdicts
+# and the advisor's evidence check. Pure stdlib, so no venv needed.
+python3 "$ROOT/test/workshop_test.py" || fails=$((fails + 1))
+
 exit $((fails > 0))

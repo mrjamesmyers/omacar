@@ -9,6 +9,124 @@ but everything below P2 is generic OBD-II and works on any car built since 1996.
     ./install.sh --bind   also bind Super+Shift+C
     ./test/all.sh         every test — needs neither a car nor an adapter
 
+## No car? Run one
+
+    omacar sim seed       a year of driving, the codes it has thrown, the service book
+    omacar sim start      the live loop — 1 Hz samples and live.json, same as the daemon
+    omacar sim status
+
+The simulator is a whole 2015 CR-Z in software, writing the same
+`telemetry.db` and `live.json` the real daemon writes, so the cluster, the bar
+panel and the dock card all read it without knowing the difference. It never
+opens a serial port, so it cannot fight the daemon for one — but the two do
+share `live.json`, and only one of them may run at a time.
+
+It is not a lie: the vehicle record says `simulated`, and the bar panel and
+`omacar sim status` both say so out loud.
+
+A year of one-second rows would be a hundred megabytes to say something a daily
+rollup says in a line, so the two halves are generated differently and made to
+agree — 365 `days` rollups from a trip-level model, and the last fortnight at
+1 Hz synthesised from those same trips, with each trip's fuel scaled to the
+figure the rollup already published. The sparkline and the odometer cannot
+disagree.
+
+There is a `omacar-sim.service` user unit alongside it for a simulator that
+should still be there after a reboot.
+
+## The workshop
+
+    omacar               open the app
+    omacar scan          full system scan in the terminal
+    omacar ai            the advisor: what is actually wrong with this car
+
+`share/app.html` is a nine-view diagnostic platform, not a gauge:
+
+  **Home**      the verdict, the four things that matter, the advisor's last word
+  **Scan**      every control unit walked, one vehicle system report, printable
+  **Codes**     per code: what it means, this car's own numbers, ranked causes,
+                freeze frame, guided tests
+  **AI**        the advisor — see below
+  **Data**      several channels on one time axis, cursor, statistics, recordings
+  **Tests**     bidirectional — command the car, watch what it does
+  **Health**    I/M readiness with the reason each monitor is stuck, and Mode 06
+  **Service**   the maintenance book on Honda's own countdown
+  **Log**       twelve months of driving, trips, and everything the tool has filed
+  **Report**    the page you hand somebody, printable
+  **Live**      the ambient ring, unchanged
+
+No build step, no framework, no dependencies: ES modules served straight off
+disk. The thing this replaces is a tablet that stops getting updates when its
+vendor decides it should, and a tool you cannot open and repair is the same
+trap in a different colour.
+
+**Functional tests** command the car rather than asking it. The cylinder
+balance sequence silences each injector in turn at idle and measures how far
+the engine speed falls: a cylinder that does not drop the idle when you switch
+it off was not contributing to begin with. On the simulated car it finds
+cylinder 1 at 55% of the best cylinder's drop, which independently agrees with
+the P0301 sitting in that car's own code history. Every test says on its face
+that a real vehicle needs a manufacturer protocol — generic OBD-II has Mode 08
+in the standard and almost nobody implements it. Durations are capped in the
+server, and the command carries its own expiry so a crashed app cannot leave a
+cooling fan on.
+
+Two more features are worth calling out because nobody else surfaces them.
+**Readiness** says not just which monitors are incomplete but *why* — almost
+always another fault standing in the way — which turns "you cannot pass a smog
+test" into "fix this one code and you can". **Mode 06** is the ECU showing its
+working: every self-test's measured value next to the limit it was judged
+against. Every OBD-II car has had it since 1996 and almost no consumer tool
+shows it, which is a waste, because a catalyst test passing at 95% of its limit
+is a failure with a date on it.
+
+## The advisor
+
+    omacar ai                    everything at once, cheapest certain work first
+    omacar ai owner              the same, without the jargon
+    omacar ai predict            what fails next, and roughly when
+    omacar ai code P0135         one code, ranked against THIS car's numbers
+    omacar ai ask "will it pass a smog test?"
+
+and, from the app, two more that have no equivalent on a scan tool:
+
+  **Symptom first.** Describe what the car is doing — "it stalls at junctions
+  for the first five minutes after a cold start, no warning light" — and it
+  ranks the hypotheses, says what in the evidence *fails to rule each one out*,
+  names the one observation that separates them, and hands back a recording
+  plan: which channels, under what conditions, for how long, and what in that
+  recording would confirm or kill each theory. Asked exactly that, it noticed
+  the hybrid pack's freeze frames were captured at 54 mph and therefore cannot
+  explain a stall at idle, and that assist current is not among the channels
+  this car can report — so it marked that hypothesis unconfirmable rather than
+  quietly asserting it.
+
+  **Read a recording.** Save a stretch of driving in the data lab, then ask the
+  advisor to read it. It gets per-channel statistics rather than the rows: far
+  cheaper, and a model reads a shape better than ten thousand numbers.
+
+A five-thousand-dollar scan tool can tell you what other technicians did about
+a code on this model. It cannot read *your* freeze frame, *your* Mode 06
+margins, *your* fuel trims and *your* year of economy at once and tell you what
+is going on with this particular car. That is a reasoning problem, and it is
+now a solved one — so it belongs in a free tool rather than behind a
+subscription.
+
+It drives the `claude` CLI you already have, headless. No API key, no account
+of ours, no per-scan fee, and nothing about the car leaves the machine except
+the question you chose to ask. Without the CLI everything else still works and
+the app says so rather than pretending.
+
+The failure mode of a language model on a diagnostic tool is a confident
+invention — a code that does not exist, a measurement nobody took. Every
+defence in `lib/ai.py` is aimed at that: the model gets a structured evidence
+bundle and is told it is the only source of fact about this vehicle; it must
+answer in JSON against a fixed schema; every finding must cite bundle keys;
+**findings citing anything else are dropped in Python before they are ever
+shown**, and the app says how many were dropped. Confidence is per finding and
+on screen. Answers are cached against a hash of the evidence, so re-asking an
+unchanged car is instant and free.
+
 ## Status: P2 — the PID prospector
 
 You do not need the adapter, or the car, to develop this.
@@ -68,10 +186,136 @@ both; that combination is the only one that installs on Python 3.14.
 `omacar doctor` checks this and says so rather than failing with a bare
 permission error.
 
+## Living in the car
+
+The point of leaving an adapter plugged in is to be told while something is
+going wrong, not after.
+
+    omacar watch start        the watchdog
+    omacar watch list         what it has raised
+    omacar status             is anything watching, and what does it know
+
+`omacar-watch.service` reads the same `live.json` everything else reads and
+raises an Omarchy notification when a rule fires: overheating, a charging
+system that stopped charging, a trouble code that set and cleared itself before
+you ever saw the light, low fuel, a trim that has drifted, the adapter coming
+and going — and a summary when a trip ends, which is the one alert that is not
+a warning. Every rule arms above one level and re-arms below a lower one, and
+has to hold for several seconds before it counts, because an alerter that fires
+twice a minute is one people learn to ignore. Every alert is filed whether or
+not a notification reached anyone; the timeline is in the app and in the bar
+widget, and the notification is a courtesy.
+
+**Drive mode** (`#drive`) is the only screen that is safe to have on while the
+car is moving: four numbers, type you can read at arm's length in daylight, one
+full-width way out, and no pointer needed anywhere. An alert takes over the
+whole screen, because if the watchdog has something to say at 70 mph it is the
+only thing worth looking at. It holds a screen wake-lock, so a tablet on a
+dashboard does not blank halfway through a drive.
+
+**Kiosk.** `omacar kiosk` is drive mode fullscreen with no browser chrome, its
+own Chromium profile (so it cannot restore yesterday's tabs over the gauge),
+and Omarchy's own stay-awake switch held for the duration and put back exactly
+as it was on the way out. `omacar-kiosk.service` is installed but deliberately
+NOT enabled: a unit that puts a fullscreen gauge over your desktop the moment
+you log in is correct on a tablet in a car and wrong on the machine you write
+code on. Enable it on the tablet.
+
+**It switches to drive mode on its own.** When the adapter answers — or when
+the car actually starts rolling, if you would rather — the app takes itself to
+drive mode, and goes back to the workshop when the link drops. You get in, the
+car wakes up, and the screen is already the one you want without touching it.
+The one rule that makes this bearable rather than infuriating: if you navigate
+away from drive mode by hand, it stays away until the adapter reconnects.
+Software that keeps dragging you back to a screen you just left is software you
+end up fighting.
+
+**Drive mode is yours to arrange.** Twenty readouts to choose from — speed,
+engine speed, instantaneous and trip economy, coolant, intake, outside air,
+battery, fuel level and computed range, load, throttle, timing, both fuel
+trims, air flow, today's distance, odometer, stored faults, next service — up
+to eight at a time, one to four across, with the big number and the bottom line
+your choice too. The layout is stored on the machine running OmaCar rather than
+in a browser, so the arrangement you make at the kitchen table is the one the
+tablet in the car shows. The editor is only offered while the car is stopped;
+that part is not configurable, because a screen you can rearrange at speed is a
+screen you rearrange at speed.
+
+**Hotplug.** `omacar hotplug install` adds a udev rule that gives the adapter a
+stable `/dev/obd` (ttyUSB numbering moves the moment you plug in anything else
+that presents a serial port) and asks your systemd to start the daemon the
+instant it appears. One sudo, once. The watchdog also does the same job without
+root, a second or two slower, by noticing a serial port that was not there
+before — having both is harmless, because starting a daemon that is already
+running is a no-op and that is checked before anything is spawned.
+
+**Compaction.** A car driven a thousand miles a week writes about 0.6 GB of
+one-second samples a year, which on a dashboard tablet is both a disk problem
+and a speed problem. `omacar prune` — run automatically by the watchdog once a
+day, and never while the car is being driven — rolls samples older than 45 days
+into the daily figures the year view already uses, then drops them and
+reclaims the space. The rollup uses exactly the same integration and fuel
+model as the live path, so the year does not develop a seam at the boundary.
+
+## The tablet in the car
+
+    omacar tablet setup
+
+One command, and it says what it is about to do before it does it: watchdog at
+login, fullscreen drive mode at login, daemon started when the adapter is
+plugged in, and the app switching to drive mode by itself when the car
+connects. `omacar tablet` shows the current state and `omacar tablet off` puts
+it back. Nothing here is turned on by `install.sh` — a tool that quietly makes
+your laptop boot into a fullscreen speedometer has done something rude.
+
+## A tablet that cannot run Omarchy
+
+Most cheap tablets are ARM Android devices with locked bootloaders, and no
+amount of wanting will put Arch on them. That is fine, because OmaCar is a web
+app and every one of them has a browser.
+
+    omacar cockpit              read-only, on the local network
+    omacar cockpit --control    ...and allowed to command the car
+
+It prints a URL and a QR code. Point a Samsung tablet, an old iPad, a phone or
+a laptop at it and you have the gauge, while the machine that actually runs
+OmaCar — a mini PC or a Pi in the glovebox, with no battery to cook in a parked
+car in July — stays where it is.
+
+The security model is the whole point of the mode, so it is worth stating
+plainly. A token is required on every request including the page itself; every
+write is refused unless `--control` was passed deliberately, so a display
+cannot clear codes, command an actuator or spend your AI budget; and the token
+is **not** a password — it stops the other devices on a car's hotspot from
+stumbling in, and anyone who can read your Wi-Fi traffic can read this, because
+it is plain HTTP on a LAN. Loopback keeps every power it has always had.
+
+## Wearing Omarchy's clothes
+
+The palette comes from `~/.local/state/omarchy/current/theme/colors.toml`, not
+from this app. Change the desktop theme and OmaCar changes with it, light
+themes included — the theme supplies the hues and `lib/theme.py` decides the
+roles, so a light theme comes out legible rather than inverted. Every semantic
+colour is checked for contrast against the surface it will actually sit on and
+nudged if it does not clear the floor, because a theme's yellow is chosen to be
+readable in a terminal and that is not the same background.
+
+It is in the Omarchy menu (OmaCar → scan, advisor, watchdog, simulator), on the
+bar with a badge when the watchdog has raised something, and in the app
+launcher. `./install.sh --bind` adds a keybinding; without it, nothing grabs a
+chord uninvited.
+
 ## Where it goes next
 
-- **P3 — faults and readiness.** DTCs in plain English, freeze frames, and
-  readiness monitors.
+P3 landed: DTCs in plain English, freeze frames, readiness monitors, Mode 06,
+full-system scan and the advisor.
+
+- **P4 — bidirectional on a real car.** The tests are built and work against
+  the simulator; on a real vehicle each one needs the manufacturer's protocol.
+  The app says so on every test and on every module line rather than in a
+  footnote.
+- **A real adapter.** Everything above runs today against the simulator; the
+  daemon speaks to a real OBDLink SX unchanged.
 
 ## Finding what Honda does not document
 

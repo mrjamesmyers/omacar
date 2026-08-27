@@ -1,438 +1,49 @@
-<!-- OmaCar cluster — one self-contained page, no build step.
-     Served over http://127.0.0.1 by lib/serve.py; reads /api/live.
+<!doctype html>
+<!-- OmaCar — the workshop.
+     One page, no build step, served over http://127.0.0.1 by lib/serve.py.
 
-     The ambient ring borrows the CR-Z's own language: it glows blue in
-     NORMAL and ECON, greens as you drive efficiently, and commits to red in
-     SPORT. Colour is efficiency; the bright arc is road speed.
+     Everything here is an ES module loaded straight from disk. There is no
+     bundler, no framework and no lockfile, because the thing this replaces is
+     a five-thousand-dollar tablet that stops getting updates when its vendor
+     decides it should, and a tool you cannot open and repair is the same trap
+     in a different colour.
 
-     The shader declares `precision highp float`. At mediump the hash
-     collapses on this machine's integrated GPU and the ring renders black —
-     and software/headless GL renders it correctly, which hides the bug. Do
-     not "simplify" this to mediump, and verify changes on the real display. -->
+     Layout is a fixed rail, a fixed vehicle bar, and one scrolling view. The
+     vehicle identity NEVER leaves the screen: every scan tool that has ever
+     shown somebody the wrong car's data got there by letting it. -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OmaCar</title>
-<style>
-  :root {
-    --ground: #070B0D; --panel: #0D1417; --edge: #17222633;
-    --ink: #E7F0EE; --dim: #7D908C; --faint: #4A5A57;
-    --econ-lo: #3E7CC4; --econ-hi: #4ACE8A; --sport: #E0483B;
-    --warn: #D9AE55;
-  }
-  * { box-sizing: border-box }
-  html, body { height: 100% }
-  body {
-    margin: 0; background: var(--ground); color: var(--ink);
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-    font-size: 15px; overflow: hidden;
-    display: grid; grid-template-rows: 1fr auto; gap: 0;
-  }
-  .stage {
-    position: relative; display: grid; place-items: center;
-    grid-template-columns: 1fr minmax(320px, min(68vh, 42vw)) 1fr;
-    align-items: center; gap: 2vw; padding: 3vh 3vw 0;
-    min-height: 0;
-  }
-  canvas { width: 100%; aspect-ratio: 1; display: block; grid-column: 2; grid-row: 1 }
+<link rel="icon" href="icon.svg">
+<link rel="stylesheet" href="css/app.css">
 
-  /* readouts float over the ring */
-  .core {
-    grid-column: 2; grid-row: 1; position: relative; z-index: 2;
-    display: grid; place-items: center; text-align: center; pointer-events: none;
-  }
-  .mode {
-    font-size: .72rem; letter-spacing: .28em; color: var(--dim);
-    margin-bottom: .4rem;
-  }
-  .speed {
-    font-size: clamp(3.4rem, 11vh, 6.4rem); line-height: .92; font-weight: 600;
-    font-variant-numeric: tabular-nums; letter-spacing: -.03em;
-  }
-  .unit { font-size: .72rem; letter-spacing: .24em; color: var(--dim); margin-top: .3rem }
-  .rpm {
-    margin-top: 1.1rem; font-size: .82rem; color: var(--dim);
-    font-variant-numeric: tabular-nums;
-  }
-  .rpm b { color: var(--ink); font-weight: 500 }
-
-  .wing { display: grid; gap: 10px; align-content: center; min-width: 0; grid-row: 1 }
-  .wing.left { grid-column: 1; justify-items: end; text-align: right }
-  .wing.right { grid-column: 3; justify-items: start }
-  .cell {
-    display: grid; gap: 2px; padding: 8px 12px; border-radius: 3px;
-    background: var(--panel); border: 1px solid #16211F; min-width: 150px;
-  }
-  .cell .k { font-size: .62rem; letter-spacing: .14em; color: var(--faint) }
-  .cell .v {
-    font-size: 1.02rem; font-variant-numeric: tabular-nums; color: var(--ink);
-  }
-  .cell .v small { font-size: .62rem; color: var(--dim); letter-spacing: .1em; margin-left: 4px }
-  .cell.off .v { color: var(--faint) }
-
-  footer {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px;
-    padding: 12px 20px; border-top: 1px solid #131E21; background: #090F11;
-    font-size: .68rem; letter-spacing: .08em; color: var(--dim);
-  }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none }
-  .dot.on { background: var(--econ-hi); box-shadow: 0 0 8px var(--econ-hi) }
-  .dot.bad { background: var(--sport); box-shadow: 0 0 8px var(--sport) }
-  .spacer { margin-left: auto }
-  button {
-    font: inherit; font-size: .66rem; letter-spacing: .16em; text-transform: uppercase;
-    padding: 6px 13px; border-radius: 2px; cursor: pointer;
-    background: transparent; color: var(--dim); border: 1px solid #1D2A2D;
-    transition: color .15s, border-color .15s;
-  }
-  button:hover { color: var(--ink) }
-  button[aria-pressed="true"] { color: var(--ground); background: var(--ink); border-color: transparent }
-  button:focus-visible { outline: 2px solid var(--econ-hi); outline-offset: 2px }
-  .group { display: flex; gap: 6px }
-  @media (prefers-reduced-motion: reduce) { .speed { transition: none } }
-  @media (max-width: 860px) {
-    .stage { grid-template-columns: 1fr; }
-    canvas, .core { grid-column: 1 }
-    .wing { display: none }
-  }
-</style>
-
-<div class="stage">
-  <div class="wing left">
-    <div class="cell" id="c-economy"><span class="k">ECONOMY</span><span class="v">—</span></div>
-    <div class="cell" id="c-load"><span class="k">ENGINE LOAD</span><span class="v">—</span></div>
-    <div class="cell" id="c-throttle"><span class="k">THROTTLE</span><span class="v">—</span></div>
-    <div class="cell" id="c-timing"><span class="k">TIMING ADV</span><span class="v">—</span></div>
-  </div>
-
-  <canvas id="ring" width="900" height="900" role="img"
-          aria-label="Ambient meter: ring colour shows driving efficiency, bright arc shows road speed."></canvas>
-
-  <div class="core">
-    <div>
-      <div class="mode" id="mode-label">NORMAL</div>
-      <div class="speed" id="speed">—</div>
-      <div class="unit" id="speed-unit">MPH</div>
-      <div class="rpm"><b id="rpm">—</b> RPM</div>
+<div id="app" class="app" data-booting="1">
+  <nav class="rail" aria-label="Sections">
+    <div class="rail-mark" title="OmaCar">
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+        <circle cx="12" cy="12" r="9.2" fill="none" stroke="currentColor" stroke-width="1.7"/>
+        <circle cx="12" cy="12" r="3" fill="currentColor"/>
+        <path d="M12 3v5.6M5.2 16.4l4.5-2.6M18.8 16.4l-4.5-2.6"
+              stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      </svg>
     </div>
-  </div>
+    <div class="rail-items" id="rail"></div>
+    <div class="rail-foot">
+      <button type="button" class="rail-btn" id="btn-units" title="Toggle units">mi</button>
+    </div>
+  </nav>
 
-  <div class="wing right">
-    <div class="cell" id="c-coolant"><span class="k">COOLANT</span><span class="v">—</span></div>
-    <div class="cell" id="c-intake"><span class="k">INTAKE AIR</span><span class="v">—</span></div>
-    <div class="cell" id="c-stft"><span class="k">SHORT FUEL TRIM</span><span class="v">—</span></div>
-    <div class="cell" id="c-ltft"><span class="k">LONG FUEL TRIM</span><span class="v">—</span></div>
-  </div>
+  <header class="vbar" id="vbar"></header>
+
+  <main class="stage" id="stage" tabindex="-1"></main>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="modal-host" id="modal-host" hidden></div>
 </div>
 
-<footer>
-  <span class="dot" id="dot"></span>
-  <span id="status">connecting…</span>
-  <span id="basis"></span>
-  <span class="spacer"></span>
-  <div class="group" role="group" aria-label="Drive mode">
-    <button type="button" data-mode="econ" aria-pressed="false">Econ</button>
-    <button type="button" data-mode="normal" aria-pressed="true">Normal</button>
-    <button type="button" data-mode="sport" aria-pressed="false">Sport</button>
-  </div>
-  <div class="group">
-    <button type="button" id="units" aria-pressed="false">mph</button>
-    <button type="button" id="demo" aria-pressed="false">Demo</button>
-  </div>
-</footer>
+<noscript>
+  <p style="padding:2rem;font-family:monospace">OmaCar needs JavaScript. Everything
+  it shows is also available from the terminal — try <code>omacar doctor</code>.</p>
+</noscript>
 
-<script>
-(function () {
-  "use strict";
-
-  // ---------------------------------------------------------------- state
-  var MAX_SPEED_KPH = 180, MAX_RPM = 7000;
-  // ?demo=1 and ?mode=sport let you preview the cluster without a car —
-  // used for screenshots and for judging the palette while developing.
-  var params = new URLSearchParams(location.search);
-  var mode = params.get("mode") || localStorage.getItem("omacar.mode") || "normal";
-  var imperial = params.get("units") ? params.get("units") !== "metric"
-                                     : localStorage.getItem("omacar.units") !== "metric";
-  var demo = params.get("demo") === "1";
-  var live = { connected: false, values: {} };
-  var shown = { eff: 0.25, speed: 0, rpm: 0 };   // smoothed for display
-
-  // ---------------------------------------------------------------- webgl
-  var cv = document.getElementById("ring");
-  var gl = cv.getContext("webgl", { antialias: true, alpha: true });
-  var prog = null;
-
-  var VERT =
-    "attribute vec2 p; varying vec2 uv;" +
-    "void main(){ uv = p; gl_Position = vec4(p, 0.0, 1.0); }";
-
-  // highp is load-bearing — see the comment at the top of this file.
-  var FRAG = [
-    "precision highp float;",
-    "varying vec2 uv;",
-    "uniform float uEff;",    // 0..1 efficiency
-    "uniform float uSpeed;",  // 0..1 of MAX_SPEED_KPH
-    "uniform float uRpm;",    // 0..1 of MAX_RPM
-    "uniform float uSport;",  // 0..1 blend toward the sport palette
-    "uniform float uLive;",   // 0 when disconnected: everything goes cold
-    "",
-    "const float PI = 3.14159265;",
-    "const float SWEEP = 4.712389;",           // 270 degrees
-    "const float START = 2.356194;",           // 135 degrees, opening at the bottom
-    "",
-    "float band(float d, float w, float soft){",
-    "  return smoothstep(w + soft, w, abs(d));",
-    "}",
-    "",
-    "void main(){",
-    "  vec2 q = uv;",
-    "  float r = length(q);",
-    "  float a = atan(-q.x, -q.y);",          // 0 at the bottom, growing clockwise
-    "  if (a < 0.0) a += 2.0 * PI;",
-    "  float t = (a + START - PI) / SWEEP;",  // 0..1 along the sweep
-    "",
-    "  vec3 cold  = vec3(0.243, 0.486, 0.769);",
-    "  vec3 frugal= vec3(0.290, 0.808, 0.541);",
-    "  vec3 hot   = vec3(0.878, 0.282, 0.231);",
-    "  vec3 col = mix(cold, frugal, clamp(uEff, 0.0, 1.0));",
-    "  col = mix(col, hot, uSport);",
-    "  col = mix(vec3(0.16, 0.20, 0.21), col, uLive);",
-    "",
-    "  float R = 0.74, W = 0.030;",
-    "  float ring = band(r - R, W, 0.010);",
-    "  float inSweep = step(0.0, t) * step(t, 1.0);",
-    "",
-    "  // Ambient: the whole arc breathes at low intensity, always.",
-    "  float amb = ring * inSweep * 0.22;",
-    "",
-    "  // Speed: the bright leading arc.",
-    "  float prog = step(t, clamp(uSpeed, 0.0, 1.0)) * inSweep;",
-    "  float lead = ring * prog;",
-    "",
-    "  // Tick marks, brighter where the arc has reached.",
-    "  float ticks = 0.0;",
-    "  float td = fract(t * 24.0);",
-    "  float major = step(0.94, fract(t * 4.8));",
-    "  float tw = 0.0035 + major * 0.0030;",
-    "  float tr = band(r - (R - 0.075), 0.028 + major * 0.014, 0.006);",
-    "  ticks = tr * band(min(td, 1.0 - td) / 24.0, tw, 0.0016) * inSweep;",
-    "  ticks *= mix(0.10, 0.75, prog);",
-    "",
-    "  // Tacho: a slim inner arc.",
-    "  float rr = band(r - (R - 0.135), 0.011, 0.007);",
-    "  float rprog = step(t, clamp(uRpm, 0.0, 1.0)) * inSweep;",
-    "  float tach = rr * rprog * 0.55;",
-    "",
-    "  // Outward bloom from the lit arc.",
-    "  float glow = exp(-abs(r - R) * 9.0) * (0.16 + 0.44 * prog) * inSweep;",
-    "",
-    "  float i = amb + lead + ticks + tach + glow;",
-    "  vec3 rgb = col * i;",
-    "  // A touch of core whitening so the lit arc reads as emissive.",
-    "  rgb += vec3(1.0) * lead * 0.16 * uLive;",
-    "  gl_FragColor = vec4(rgb, clamp(i * 1.6, 0.0, 1.0));",
-    "}"
-  ].join("\n");
-
-  function compile(type, src) {
-    var s = gl.createShader(type);
-    gl.shaderSource(s, src);
-    gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-      console.error(gl.getShaderInfoLog(s));
-      return null;
-    }
-    return s;
-  }
-
-  function initGL() {
-    if (!gl) return false;
-    var v = compile(gl.VERTEX_SHADER, VERT), f = compile(gl.FRAGMENT_SHADER, FRAG);
-    if (!v || !f) return false;
-    prog = gl.createProgram();
-    gl.attachShader(prog, v); gl.attachShader(prog, f); gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-      console.error(gl.getProgramInfoLog(prog));
-      return false;
-    }
-    gl.useProgram(prog);
-    var buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER,
-      new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
-    var loc = gl.getAttribLocation(prog, "p");
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    return true;
-  }
-
-  var U = {};
-  function uni(name) {
-    if (!(name in U)) U[name] = gl.getUniformLocation(prog, name);
-    return U[name];
-  }
-
-  function draw() {
-    if (!prog) return;
-    var w = cv.clientWidth * (window.devicePixelRatio || 1);
-    if (cv.width !== Math.round(w)) { cv.width = cv.height = Math.round(w); }
-    gl.viewport(0, 0, cv.width, cv.height);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.uniform1f(uni("uEff"), shown.eff);
-    gl.uniform1f(uni("uSpeed"), Math.min(1, shown.speed / MAX_SPEED_KPH));
-    gl.uniform1f(uni("uRpm"), Math.min(1, shown.rpm / MAX_RPM));
-    gl.uniform1f(uni("uSport"), mode === "sport" ? 1 : 0);
-    gl.uniform1f(uni("uLive"), live.connected || demo ? 1 : 0);
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
-  }
-
-  // ---------------------------------------------------------------- format
-  function n(x, d) { return x === null || x === undefined ? null : Number(x).toFixed(d === undefined ? 0 : d); }
-  function cell(id, value, unit, ok) {
-    var el = document.getElementById(id);
-    var v = el.querySelector(".v");
-    if (value === null || value === undefined) { v.textContent = "—"; el.classList.add("off"); return; }
-    el.classList.toggle("off", ok === false);
-    v.innerHTML = value + (unit ? ' <small>' + unit + '</small>' : "");
-  }
-  function cToF(c) { return c * 9 / 5 + 32; }
-  function lphkToMpg(l) { return 235.215 / l; }
-
-  // ---------------------------------------------------------------- render
-  function paint() {
-    var v = live.values || {};
-    var connected = live.connected || demo;
-
-    var kph = v.SPEED === undefined || v.SPEED === null ? null : v.SPEED;
-    var disp = kph === null ? null : (imperial ? kph * 0.621371 : kph);
-    document.getElementById("speed").textContent = disp === null ? "—" : Math.round(disp);
-    document.getElementById("speed-unit").textContent = imperial ? "MPH" : "KM/H";
-    document.getElementById("rpm").textContent = v.RPM === null || v.RPM === undefined ? "—" : Math.round(v.RPM);
-    document.getElementById("mode-label").textContent = mode.toUpperCase();
-
-    var lphk = live.economy_lphk;
-    if (lphk === null || lphk === undefined) {
-      cell("c-economy", (kph !== null && kph < 3) ? "idling" : null, "", false);
-    } else if (imperial) {
-      cell("c-economy", n(lphkToMpg(lphk), 1), "MPG");
-    } else {
-      cell("c-economy", n(lphk, 1), "L/100KM");
-    }
-    cell("c-load", n(v.ENGINE_LOAD, 0), "%");
-    cell("c-throttle", n(v.THROTTLE_POS, 0), "%");
-    cell("c-timing", n(v.TIMING_ADVANCE, 1), "°");
-    cell("c-coolant", v.COOLANT_TEMP === null || v.COOLANT_TEMP === undefined ? null
-      : n(imperial ? cToF(v.COOLANT_TEMP) : v.COOLANT_TEMP, 0), imperial ? "°F" : "°C");
-    cell("c-intake", v.INTAKE_TEMP === null || v.INTAKE_TEMP === undefined ? null
-      : n(imperial ? cToF(v.INTAKE_TEMP) : v.INTAKE_TEMP, 0), imperial ? "°F" : "°C");
-    cell("c-stft", n(v.SHORT_FUEL_TRIM_1, 1), "%");
-    cell("c-ltft", n(v.LONG_FUEL_TRIM_1, 1), "%");
-
-    var dot = document.getElementById("dot");
-    dot.className = "dot" + (connected ? " on" : (live.status ? " bad" : ""));
-    document.getElementById("status").textContent = demo
-      ? "demo data — no car connected"
-      : live.connected
-        ? (live.port || "connected") + " · " + (live.protocol || "")
-        : (live.status || "no daemon") + " — run: omacar daemon start";
-
-    // Say which way efficiency was measured. A ring that looks authoritative
-    // while guessing is worse than one that admits it estimated.
-    var basis = { economy: "efficiency from measured fuel flow",
-                  load: "efficiency estimated from load — no MAF on this ECU",
-                  idle: "stopped — efficiency undefined" }[live.efficiency_basis] || "";
-    document.getElementById("basis").textContent = connected ? "· " + basis : "";
-  }
-
-  // ---------------------------------------------------------------- loop
-  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  function lerp(a, b, k) { return a + (b - a) * k; }
-
-  function tick() {
-    var v = live.values || {};
-    var k = reduced ? 1 : 0.12;
-    var targetEff = live.efficiency === undefined || live.efficiency === null ? 0.25 : live.efficiency;
-    shown.eff = lerp(shown.eff, targetEff, k);
-    shown.speed = lerp(shown.speed, v.SPEED || 0, k);
-    shown.rpm = lerp(shown.rpm, v.RPM || 0, k);
-    draw();
-    requestAnimationFrame(tick);
-  }
-
-  // ---------------------------------------------------------------- data
-  var demoT = 0;
-  function demoSample() {
-    // A smooth synthetic drive, so the cluster can be judged without a car.
-    demoT += 0.02;
-    var s = 55 + 48 * Math.sin(demoT * 0.21) + 9 * Math.sin(demoT * 0.9);
-    var load = 26 + 22 * Math.sin(demoT * 0.31 + 1.1);
-    var maf = 2.2 + load * 0.22 + Math.max(0, Math.sin(demoT * 0.5)) * 5;
-    var lphk = s > 3 ? (maf / 14.7 * 3600 / 745) / s * 100 : null;
-    var eff = lphk === null ? 0.25 : Math.max(0, Math.min(1, 1 - (lphk - 4.5) / 5));
-    return {
-      connected: true, port: "demo", protocol: "ISO 15765-4 (CAN 11/500)",
-      economy_lphk: lphk, efficiency: eff,
-      efficiency_basis: lphk === null ? "idle" : "economy",
-      values: {
-        SPEED: Math.max(0, s), RPM: 900 + Math.max(0, s) * 31 + load * 8,
-        ENGINE_LOAD: load, THROTTLE_POS: Math.max(4, load * 0.8),
-        COOLANT_TEMP: 88, INTAKE_TEMP: 27, TIMING_ADVANCE: 12 - load * 0.15,
-        SHORT_FUEL_TRIM_1: Math.sin(demoT) * 2.4, LONG_FUEL_TRIM_1: -1.6,
-        MAF: maf
-      }
-    };
-  }
-
-  function poll() {
-    if (demo) { live = demoSample(); paint(); return; }
-    fetch("/api/live", { cache: "no-store" })
-      .then(function (r) { return r.json(); })
-      .then(function (d) { live = d; paint(); })
-      .catch(function () { live = { connected: false, status: "server unreachable", values: {} }; paint(); });
-  }
-
-  // ---------------------------------------------------------------- wiring
-  document.querySelectorAll("[data-mode]").forEach(function (b) {
-    b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
-    b.addEventListener("click", function () {
-      mode = b.dataset.mode;
-      localStorage.setItem("omacar.mode", mode);
-      document.querySelectorAll("[data-mode]").forEach(function (o) {
-        o.setAttribute("aria-pressed", String(o.dataset.mode === mode));
-      });
-      paint();
-    });
-  });
-
-  var unitsBtn = document.getElementById("units");
-  function syncUnits() {
-    unitsBtn.textContent = imperial ? "mph" : "km/h";
-    unitsBtn.setAttribute("aria-pressed", String(!imperial));
-  }
-  unitsBtn.addEventListener("click", function () {
-    imperial = !imperial;
-    localStorage.setItem("omacar.units", imperial ? "imperial" : "metric");
-    syncUnits(); paint();
-  });
-  syncUnits();
-
-  var demoBtn = document.getElementById("demo");
-  demoBtn.setAttribute("aria-pressed", String(demo));
-  demoBtn.addEventListener("click", function () {
-    demo = !demo;
-    demoBtn.setAttribute("aria-pressed", String(demo));
-    if (!demo) poll();
-  });
-
-  if (!initGL()) {
-    document.getElementById("status").textContent =
-      "WebGL unavailable — readouts still work, the ring does not";
-  }
-  paint();
-  poll();
-  setInterval(poll, 200);
-  requestAnimationFrame(tick);
-})();
-</script>
+<script type="module" src="js/main.js"></script>

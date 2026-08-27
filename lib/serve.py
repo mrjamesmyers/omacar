@@ -1,87 +1,169 @@
 #!/usr/bin/env python3
-"""Loopback server for the OmaCar cluster.
+"""The server behind the OmaCar workshop.
 
-Serves share/ over http (never file:// — a null origin partitions
-localStorage and breaks fetch against our own /api), and exposes the
-snapshot the daemon publishes.
-
-    /api/live            the current sample
-    /api/history?n=300   recent rows from telemetry.db
+Serves share/ over http (never file:// — a null origin partitions localStorage
+and breaks fetch against our own /api) and hands every /api request to api.py.
 
 Deliberately does no OBD work of its own. One process owns the serial
 connection, and it is the daemon.
 
-    python3 serve.py <port> <share-dir>
+    python3 serve.py <port> <share-dir> [--host H] [--token T] [--control]
+
+Two modes, and the difference between them is the whole security model.
+
+  **Loopback** (the default). Bound to 127.0.0.1, full privileges. The Host
+  header is still checked, because a page on any website can point a fetch at
+  a hostname that resolves to 127.0.0.1, and this API will happily clear a
+  car's trouble codes.
+
+  **Cockpit** (`--host 0.0.0.0`). For putting the gauge on a tablet that
+  cannot run Omarchy — a Samsung tablet, an old iPad, a phone. Reachable from
+  the local network, and therefore:
+
+    * a token is required on every single request, including the page itself;
+    * every write is refused — no clearing codes, no commanding actuators, no
+      spending anyone's AI budget — unless `--control` was passed deliberately;
+    * the token is not a password. It stops the other devices on a car's
+      hotspot from stumbling in. Anyone who can read your Wi-Fi traffic can
+      read this, because it is plain HTTP on a LAN, and pretending otherwise
+      would be worse than saying so.
 """
+import hmac
 import json
 import os
-import sqlite3
 import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import api  # noqa: E402
 
 MARK = "omacar-server"
-STATE = os.path.expanduser(
-    os.environ.get("XDG_STATE_HOME", "~/.local/state") + "/omacar")
-LIVE = os.path.join(STATE, "live.json")
-DB = os.path.join(STATE, "telemetry.db")
+MAX_BODY = 1 << 20
 
-HISTORY_COLS = ["t", "rpm", "speed", "load", "throttle", "coolant", "intake",
-                "maf", "stft", "ltft", "timing", "lphk", "eff"]
+# Set from the command line. Empty token means loopback-only, full privileges.
+TOKEN = ""
+ALLOW_CONTROL = True
+LOOPBACK_ONLY = True
+
+# The only writes a cockpit is ever allowed, even with --control: things that
+# change what you are looking at, never what the car is doing.
+COCKPIT_WRITES = {"/api/units"}
 
 
 class Handler(SimpleHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
     def log_message(self, *a):
         pass
 
-    def _send(self, body, ctype="application/json"):
-        self.send_response(200)
+    def _send(self, body, ctype="application/json", status=200):
+        self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        # The app is one origin talking to itself. Nothing else may read it,
+        # and nothing else may frame it.
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
         self.end_headers()
         self.wfile.write(body)
 
-    def _live(self):
-        try:
-            with open(LIVE, encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, ValueError):
-            return {"connected": False, "status": "no daemon"}
+    def _json(self, payload, status=200):
+        self._send(json.dumps(payload, default=str).encode(), status=status)
 
-    def _history(self, n):
-        if not os.path.exists(DB):
-            return []
-        try:
-            db = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
-            rows = db.execute(
-                f"SELECT {','.join(HISTORY_COLS)} FROM samples "
-                "ORDER BY t DESC LIMIT ?", (n,)).fetchall()
-            db.close()
-        except sqlite3.Error:
-            return []
-        return [dict(zip(HISTORY_COLS, r)) for r in reversed(rows)]
+    def _local(self):
+        """Only this machine, and only under a loopback name.
+
+        A page on any site can point a fetch at a hostname that resolves to
+        127.0.0.1. Checking the Host header stops that reaching an API which
+        will happily clear the car's trouble codes.
+        """
+        if not LOOPBACK_ONLY:
+            return True
+        host = (self.headers.get("Host") or "").split(":")[0]
+        return host in ("127.0.0.1", "localhost", "[::1]", "::1", "")
+
+    def _authorised(self):
+        """In cockpit mode nothing at all is served without the token."""
+        if not TOKEN:
+            return True
+        auth = self.headers.get("Authorization") or ""
+        if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], TOKEN):
+            return True
+        qs = parse_qs(self.path.partition("?")[2])
+        given = (qs.get("k") or [""])[0]
+        return hmac.compare_digest(given, TOKEN)
+
+    def _may_write(self, path):
+        if ALLOW_CONTROL:
+            return True
+        return path in COCKPIT_WRITES
 
     def do_GET(self):
-        path = self.path.split("?", 1)[0]
-        query = self.path.split("?", 1)[1] if "?" in self.path else ""
-
+        if not self._local():
+            return self._json({"error": "loopback only"}, 403)
+        if not self._authorised():
+            return self._json({"error": "a token is required"}, 401)
+        path, _, query = self.path.partition("?")
         if path == "/.mark":
             return self._send(MARK.encode(), "text/plain")
-        if path == "/api/live":
-            return self._send(json.dumps(self._live()).encode())
-        if path == "/api/history":
-            n = 300
-            for part in query.split("&"):
-                if part.startswith("n="):
-                    try:
-                        n = max(1, min(5000, int(part[2:])))
-                    except ValueError:
-                        pass
-            return self._send(json.dumps(self._history(n)).encode())
+        if path.startswith("/api/"):
+            out = api.handle_get(path, query)
+            if out is None:
+                return self._json({"error": "no such endpoint"}, 404)
+            return self._json(out[1], out[0])
         return SimpleHTTPRequestHandler.do_GET(self)
+
+    def do_POST(self):
+        if not self._local():
+            return self._json({"error": "loopback only"}, 403)
+        if not self._authorised():
+            return self._json({"error": "a token is required"}, 401)
+        path = self.path.split("?", 1)[0]
+        if not path.startswith("/api/"):
+            return self._json({"error": "no such endpoint"}, 404)
+        if not self._may_write(path):
+            # A read-only cockpit says what it is rather than failing oddly.
+            return self._json(
+                {"error": "this display is read-only. Start the server with "
+                          "--control to allow it to command the car."}, 403)
+        try:
+            length = min(MAX_BODY, int(self.headers.get("Content-Length") or 0))
+        except ValueError:
+            length = 0
+        body = self.rfile.read(length).decode("utf-8", "replace") if length else ""
+        try:
+            out = api.handle_post(path, body)
+        except Exception as e:                       # noqa: BLE001
+            return self._json({"error": str(e)[:500]}, 500)
+        if out is None:
+            return self._json({"error": "no such endpoint"}, 404)
+        return self._json(out[1], out[0])
+
+
+def parse_args(argv):
+    port, root = int(argv[0]), argv[1]
+    host, token, control = "127.0.0.1", "", None
+    rest = argv[2:]
+    for i, a in enumerate(rest):
+        if a == "--host" and i + 1 < len(rest):
+            host = rest[i + 1]
+        elif a == "--token" and i + 1 < len(rest):
+            token = rest[i + 1]
+        elif a == "--control":
+            control = True
+    if control is None:
+        # Loopback keeps every power it has always had; anything reachable
+        # from the network has to be told to be dangerous.
+        control = host in ("127.0.0.1", "localhost", "::1")
+    return port, root, host, token, control
 
 
 if __name__ == "__main__":
-    port, root = int(sys.argv[1]), sys.argv[2]
+    port, root, host, TOKEN, ALLOW_CONTROL = parse_args(sys.argv[1:])
+    LOOPBACK_ONLY = host in ("127.0.0.1", "localhost", "::1")
+    if not LOOPBACK_ONLY and not TOKEN:
+        sys.exit("serve.py: refusing to bind to the network without --token")
     os.chdir(root)
-    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    ThreadingHTTPServer((host, port), Handler).serve_forever()

@@ -1,0 +1,479 @@
+/* OmaCar workshop — the whole visual system.
+
+   Dark by necessity rather than fashion: this gets read in a garage, at night,
+   next to a running engine, and a white screen at arm's length in that setting
+   is unusable. Everything is sized in rem off a 15px root so the whole tool
+   scales with the browser's font setting rather than fighting it.
+
+   Colour carries exactly one meaning throughout: green is fine, amber wants
+   attention, red is now, blue is information and cyan is the machine talking.
+   Nothing is coloured for decoration. */
+
+/* Declared dark, deliberately and early.
+   Without `color-scheme: dark` Chromium's auto dark mode decides this page is
+   a light one — it judges before the stylesheet lands, and the document starts
+   white — and then "helpfully" filters the whole thing, which renders every
+   colour here at about a quarter of its brightness. Computed styles still
+   report the author's values throughout, so it looks like a rendering bug in
+   the app rather than a filter over it. It cost an hour. */
+:root {
+  color-scheme: dark;
+  --ground:  #070B0D;
+  --panel:   #0D1417;
+  --panel-2: #111A1E;
+  --raise:   #162228;
+  --edge:    #1B282D;
+  --edge-2:  #24343A;
+
+  --ink:     #E7F0EE;
+  --dim:     #93A6A2;
+  --faint:   #5F726E;
+  --ghost:   #38474A;
+
+  --ok:      #4ACE8A;
+  --warn:    #E5B457;
+  --bad:     #E85D4E;
+  --info:    #4FA8E8;
+  --ai:      #8B7CF0;
+
+  --ok-bg:   rgba(74, 206, 138, .12);
+  --warn-bg: rgba(229, 180, 87, .13);
+  --bad-bg:  rgba(232, 93, 78, .13);
+  --info-bg: rgba(79, 168, 232, .12);
+  --ai-bg:   rgba(139, 124, 240, .13);
+
+  /* Derived surfaces, so a light theme does not end up with dark hairlines
+     baked into a meter track. Everything below is expressed against these. */
+  --track:  color-mix(in srgb, var(--ink) 13%, var(--panel));
+  --hair:   color-mix(in srgb, var(--ink) 7%, var(--panel));
+  /* Text printed on a solid semantic fill. The theme computes these by
+     luminance, because "the colour, darkened" is unreadable on itself. */
+  --on-bad:  #12060A;
+  --on-warn: #1A1305;
+  --on-ai:   #0B0718;
+
+  --rail: 62px;
+  --vbar: 58px;
+  --r: 10px;
+
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+/* The background goes on the root element too, so there is never a frame in
+   which this page is white — which is the other half of the auto-dark trap. */
+html { font-size: 15px; background: var(--ground); }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font-family: var(--mono); font-size: .92rem; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, p, ul, ol, figure { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+button { font: inherit; color: inherit; }
+
+.app {
+  display: grid; min-height: 100vh;
+  grid-template-columns: var(--rail) 1fr;
+  grid-template-rows: var(--vbar) 1fr;
+  grid-template-areas: "rail vbar" "rail stage";
+}
+/* No fade-in. A diagnostic tool that animates its own arrival looks broken
+   for the first fifth of a second, and on a slow first paint it looks broken
+   for longer than that. */
+.app[data-booting="1"] .stage { visibility: hidden; }
+
+/* ---------------------------------------------------------------- the rail */
+.rail {
+  grid-area: rail; background: var(--ground); border-right: 1px solid var(--edge);
+  display: flex; flex-direction: column; align-items: center;
+  padding: 10px 0 12px; gap: 4px; position: sticky; top: 0; height: 100vh;
+}
+.rail-mark { color: var(--faint); margin-bottom: 10px; flex: none; }
+.rail-items { display: flex; flex-direction: column; gap: 3px; flex: 1; width: 100%; align-items: center; }
+.rail-foot { flex: none; }
+
+.rail-item {
+  width: 46px; height: 46px; border: 0; border-radius: var(--r);
+  background: transparent; color: var(--faint); cursor: pointer;
+  display: grid; place-items: center; position: relative;
+  transition: background .14s, color .14s;
+}
+.rail-item:hover { color: var(--dim); background: var(--hair); }
+.rail-item[aria-current="page"] { color: var(--ink); background: var(--raise); }
+.rail-item[aria-current="page"]::before {
+  content: ""; position: absolute; left: -10px; top: 12px; bottom: 12px;
+  width: 3px; border-radius: 0 3px 3px 0; background: var(--ink);
+}
+.rail-item .lbl { font-size: .52rem; letter-spacing: .07em; margin-top: 2px; }
+.rail-item .pip {
+  position: absolute; top: 7px; right: 7px; min-width: 15px; height: 15px;
+  border-radius: 8px; background: var(--bad); color: var(--on-bad);
+  font-size: .56rem; font-weight: 700; display: grid; place-items: center;
+  padding: 0 3px; border: 2px solid var(--ground);
+}
+.rail-item .pip.warn { background: var(--warn); color: var(--on-warn); }
+.rail-item .pip.ai { background: var(--ai); color: var(--on-ai); }
+.rail-btn {
+  border: 1px solid var(--edge-2); background: transparent; color: var(--dim);
+  border-radius: 7px; padding: 5px 8px; font-size: .66rem; cursor: pointer;
+  letter-spacing: .06em;
+}
+.rail-btn:hover { color: var(--ink); border-color: var(--faint); }
+
+/* ------------------------------------------------------- the vehicle bar */
+.vbar {
+  grid-area: vbar; background: var(--panel); border-bottom: 1px solid var(--edge);
+  display: flex; align-items: center; gap: 18px; padding: 0 20px;
+  position: sticky; top: 0; z-index: 20;
+}
+.vbar .id { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.vbar .name { font-size: 1rem; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+.vbar .sub { font-size: .68rem; color: var(--faint); white-space: nowrap;
+             overflow: hidden; text-overflow: ellipsis; }
+.vbar .spacer { margin-left: auto; }
+.vbar .stat { display: flex; align-items: center; gap: 7px; font-size: .7rem; color: var(--dim); }
+.vbar .odo { font-size: .82rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ghost); flex: none; }
+.dot.ok { background: var(--ok); box-shadow: 0 0 9px rgba(74,206,138,.55); }
+.dot.warn { background: var(--warn); box-shadow: 0 0 9px rgba(229,180,87,.5); }
+.dot.bad { background: var(--bad); box-shadow: 0 0 9px rgba(232,93,78,.5); }
+.dot.info { background: var(--info); }
+.dot.live { animation: pulse 1.8s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+@media (prefers-reduced-motion: reduce) { .dot.live { animation: none } }
+
+/* ------------------------------------------------------------- the stage */
+.stage {
+  grid-area: stage; padding: 22px 26px 60px; overflow-y: auto;
+  max-height: calc(100vh - var(--vbar)); transition: opacity .2s;
+}
+.stage:focus { outline: none; }
+/* Canvases have an intrinsic 300x150 and no CSS width, so a chart measured
+   before this rule existed drew itself into a 300px box in the corner of a
+   1200px card. Every canvas in the tool fills its parent. */
+canvas { display: block; width: 100%; }
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 20px; }
+
+/* --------------------------------------------------------------- surfaces */
+.card {
+  background: var(--panel); border: 1px solid var(--edge); border-radius: var(--r);
+  padding: 16px 18px;
+}
+.card.flat { background: transparent; border-color: var(--edge); }
+.card.tint-ok   { border-color: rgba(74,206,138,.34); background: linear-gradient(180deg, var(--ok-bg), transparent 62%), var(--panel); }
+.card.tint-warn { border-color: rgba(229,180,87,.34); background: linear-gradient(180deg, var(--warn-bg), transparent 62%), var(--panel); }
+.card.tint-bad  { border-color: rgba(232,93,78,.36); background: linear-gradient(180deg, var(--bad-bg), transparent 62%), var(--panel); }
+.card.tint-ai   { border-color: rgba(139,124,240,.34); background: linear-gradient(180deg, var(--ai-bg), transparent 62%), var(--panel); }
+
+.sect { display: grid; gap: 12px; }
+.sect > .head { display: flex; align-items: baseline; gap: 12px; }
+.eyebrow {
+  font-size: .6rem; letter-spacing: .2em; color: var(--faint);
+  text-transform: uppercase; font-weight: 600;
+}
+.title { font-size: 1.16rem; font-weight: 600; letter-spacing: -.015em; }
+.lede { color: var(--dim); font-size: .84rem; max-width: 74ch; }
+.muted { color: var(--faint); font-size: .74rem; }
+.right { margin-left: auto; }
+.row { display: flex; align-items: center; gap: 10px; }
+.wrapline { flex-wrap: wrap; }
+.grid { display: grid; gap: 14px; }
+.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1000px) { .g4 { grid-template-columns: repeat(2, minmax(0,1fr)) } .g3 { grid-template-columns: repeat(2, minmax(0,1fr)) } }
+@media (max-width: 660px)  { .g4, .g3, .g2 { grid-template-columns: 1fr } }
+/* The list beside a detail pane. Below this width the two stack, because a
+   300px list and a detail pane on a phone-shaped window is neither. */
+@media (max-width: 900px) { .grid.split { grid-template-columns: 1fr !important } }
+
+/* ------------------------------------------------------------------ stats */
+.stat-tile { display: grid; gap: 3px; }
+.stat-tile .k { font-size: .58rem; letter-spacing: .17em; color: var(--faint); text-transform: uppercase; }
+.stat-tile .v { font-size: 1.7rem; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.stat-tile .v small { font-size: .62rem; color: var(--faint); font-weight: 400; margin-left: 4px; letter-spacing: .08em; }
+.stat-tile .n { font-size: .7rem; color: var(--dim); }
+.stat-tile.big .v { font-size: 2.6rem; }
+.v.ok { color: var(--ok) } .v.warn { color: var(--warn) } .v.bad { color: var(--bad) }
+.n.ok { color: var(--ok) } .n.warn { color: var(--warn) } .n.bad { color: var(--bad) }
+
+/* ------------------------------------------------------------------ meter */
+.meter { height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.meter > i { display: block; height: 100%; border-radius: 3px; background: var(--ok);
+             transition: width .4s cubic-bezier(.2,.7,.3,1), background .3s; }
+.meter.thin { height: 3px; }
+
+/* A measurement against the window it was judged in. The fill is where the
+   value sits between the floor and the ceiling; the notch is the limit. Read
+   left to right it says "how much of the allowance is used", which is the same
+   sentence every other meter in this tool says. */
+.range { position: relative; height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; }
+.range > i { position: absolute; inset: 0 auto 0 0; border-radius: 4px; }
+.range > b { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--faint); }
+
+/* ------------------------------------------------------------------ pills */
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px;
+  border-radius: 20px; font-size: .64rem; letter-spacing: .07em; font-weight: 600;
+  background: var(--track); color: var(--dim); white-space: nowrap;
+}
+.pill.ok   { background: var(--ok-bg);   color: var(--ok) }
+.pill.warn { background: var(--warn-bg); color: var(--warn) }
+.pill.bad  { background: var(--bad-bg);  color: var(--bad) }
+.pill.info { background: var(--info-bg); color: var(--info) }
+.pill.ai   { background: var(--ai-bg);   color: var(--ai) }
+
+/* --------------------------------------------------------------- controls */
+.btn {
+  border: 1px solid var(--edge-2); background: var(--panel-2); color: var(--ink);
+  border-radius: 8px; padding: 8px 15px; font-size: .74rem; cursor: pointer;
+  letter-spacing: .04em; transition: background .13s, border-color .13s, color .13s;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.btn:hover:not(:disabled) { background: var(--raise); border-color: var(--faint); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+.btn.primary { background: var(--ink); color: var(--ground); border-color: transparent; font-weight: 600; }
+.btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 88%, var(--panel)); }
+.btn.ai { background: var(--ai-bg); border-color: color-mix(in srgb, var(--ai) 45%, transparent);
+          color: color-mix(in srgb, var(--ai) 78%, var(--ink)); }
+.btn.ai:hover:not(:disabled) { background: color-mix(in srgb, var(--ai) 26%, var(--panel)); }
+.btn.danger { border-color: color-mix(in srgb, var(--bad) 50%, transparent);
+              color: color-mix(in srgb, var(--bad) 76%, var(--ink)); }
+.btn.danger:hover:not(:disabled) { background: var(--bad-bg); }
+.btn.sm { padding: 5px 10px; font-size: .66rem; }
+
+.seg { display: inline-flex; border: 1px solid var(--edge-2); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--faint); padding: 6px 12px;
+              font-size: .68rem; cursor: pointer; letter-spacing: .05em; }
+.seg button + button { border-left: 1px solid var(--edge-2); }
+.seg button[aria-pressed="true"] { background: var(--raise); color: var(--ink); }
+
+input[type="text"], textarea, select {
+  background: var(--panel-2); border: 1px solid var(--edge-2); color: var(--ink);
+  border-radius: 8px; padding: 9px 12px; font: inherit; font-size: .8rem; width: 100%;
+}
+input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--info); }
+textarea { resize: vertical; min-height: 66px; }
+
+/* ----------------------------------------------------------------- tables */
+.tbl { width: 100%; border-collapse: collapse; font-size: .76rem; }
+.tbl th {
+  text-align: left; font-size: .58rem; letter-spacing: .16em; color: var(--faint);
+  text-transform: uppercase; font-weight: 600; padding: 0 10px 8px 0;
+  border-bottom: 1px solid var(--edge);
+}
+.tbl td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--hair); vertical-align: top; }
+.tbl tr:last-child td { border-bottom: 0; }
+.tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------------ lists */
+.rowitem {
+  display: flex; align-items: center; gap: 12px; padding: 11px 13px;
+  border: 1px solid var(--edge); border-radius: var(--r); background: var(--panel);
+  cursor: pointer; transition: border-color .13s, background .13s; width: 100%;
+  text-align: left;
+}
+.rowitem:hover { border-color: var(--edge-2); background: var(--panel-2); }
+.rowitem[aria-selected="true"] { border-color: var(--faint); background: var(--panel-2); }
+.rowitem .code { font-weight: 700; letter-spacing: .05em; font-size: .84rem; min-width: 5.4em; }
+.rowitem { overflow: hidden; }
+.rowitem .desc { flex: 1 1 0; min-width: 0; width: 0; font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ------------------------------------------------------------------ scan */
+.scanline { display: grid; grid-template-columns: 1fr auto; gap: 10px 14px; align-items: center;
+            padding: 10px 0; border-bottom: 1px solid var(--hair); }
+.scanline:last-child { border-bottom: 0 }
+.scanline .mname { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.scanline .maddr { color: var(--ghost); font-size: .64rem; }
+.scan-prog { height: 2px; background: var(--hair); border-radius: 2px; overflow: hidden; }
+.scan-prog > i { display: block; height: 100%; background: var(--info); width: 0; transition: width .3s linear; }
+
+/* -------------------------------------------------------------- the scope */
+.scope { position: relative; background: var(--ground); border: 1px solid var(--edge);
+         border-radius: var(--r); overflow: hidden; }
+.scope canvas { display: block; width: 100%; }
+.scope .cursorline { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(231,240,238,.35); pointer-events: none; }
+.chan { display: flex; align-items: center; gap: 8px; font-size: .68rem; }
+.chan .swatch { width: 10px; height: 3px; border-radius: 2px; flex: none; }
+.chanpick { display: flex; flex-wrap: wrap; gap: 6px; }
+.chanpick button {
+  border: 1px solid var(--edge-2); background: transparent; color: var(--faint);
+  border-radius: 20px; padding: 4px 10px; font-size: .64rem; cursor: pointer;
+}
+.chanpick button[aria-pressed="true"] { color: var(--ground); font-weight: 600; }
+
+/* --------------------------------------------------------------- advisor */
+.ai-mark { color: var(--ai); }
+.finding { display: grid; gap: 8px; padding: 15px 17px; border-radius: var(--r);
+           border: 1px solid var(--edge); background: var(--panel); }
+.finding.critical { border-color: rgba(232,93,78,.4) }
+.finding.warning  { border-color: rgba(229,180,87,.36) }
+.finding h3 { font-size: .92rem; font-weight: 600; }
+.finding .why { color: var(--dim); font-size: .78rem; }
+.finding .cites { display: flex; flex-wrap: wrap; gap: 5px; }
+.cite { font-size: .58rem; color: var(--faint); background: var(--hair); border-radius: 4px;
+        padding: 2px 6px; letter-spacing: .04em; }
+.conf { display: flex; align-items: center; gap: 7px; font-size: .64rem; color: var(--faint); }
+.conf .meter { width: 54px; }
+
+.thinking { display: flex; align-items: center; gap: 11px; color: var(--dim); font-size: .8rem; }
+.spinner { width: 15px; height: 15px; border-radius: 50%; border: 2px solid var(--edge-2);
+           border-top-color: var(--ai); animation: spin .8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg) } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s } }
+
+/* --------------------------------------------------------------- overlays */
+.toasts { position: fixed; right: 18px; bottom: 18px; display: grid; gap: 8px; z-index: 100; }
+.toast { background: var(--raise); border: 1px solid var(--edge-2); border-radius: 9px;
+         padding: 10px 14px; font-size: .76rem; max-width: 380px;
+         animation: rise .22s ease-out; }
+.toast.bad { border-color: rgba(232,93,78,.5) }
+@keyframes rise { from { transform: translateY(8px); opacity: 0 } }
+
+.modal-host { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center;
+              background: color-mix(in srgb, var(--ground) 78%, transparent); padding: 20px; }
+/* A class selector beats the UA's `[hidden] { display: none }`, so the rule
+   above kept the confirmation backdrop laid over the whole app at 72% black
+   while the element was still marked hidden. Everything rendered at about a
+   quarter brightness and every computed style said it was fine, because the
+   sheet is a sibling rather than an ancestor. Any component styled with
+   `display` and toggled with `hidden` needs this line. */
+.modal-host[hidden] { display: none; }
+.modal { background: var(--panel); border: 1px solid var(--edge-2); border-radius: 14px;
+         padding: 22px 24px; max-width: 520px; width: 100%; display: grid; gap: 14px; }
+
+[hidden] { display: none !important; }
+
+.empty { color: var(--faint); font-size: .8rem; padding: 22px 0; text-align: center; }
+.skel { background: linear-gradient(90deg, var(--hair), var(--track), var(--hair));
+        background-size: 200% 100%; animation: sweep 1.4s linear infinite;
+        border-radius: 6px; height: 1em; }
+@keyframes sweep { to { background-position: -200% 0 } }
+
+/* Printed reports go on paper for a customer, so they invert and lose the
+   furniture. A workshop that cannot hand somebody a page has not finished. */
+@media print {
+  .rail, .vbar, .toasts, .btn, .seg, .noprint { display: none !important; }
+  .app { display: block }
+  .stage { max-height: none; overflow: visible; padding: 0 }
+  :root { --ground: #fff; --panel: #fff; --ink: #111; --dim: #444; --faint: #666; --edge: #ccc }
+  body { background: #fff; color: #111 }
+  .card { break-inside: avoid; border-color: #ccc }
+}
+
+/* ------------------------------------------------------------- drive mode */
+/* Read at 70 mph in under a second, at arm's length, in daylight, through a
+   windscreen's worth of glare. Everything here is bigger than it looks like it
+   should be on a desk, which is the point. */
+.drive-stage { padding: 0 !important; overflow: hidden; }
+.app[data-drive="1"] { grid-template-columns: 0 1fr; }
+.app[data-drive="1"] .rail { display: none; }
+.drive {
+  min-height: calc(100vh - var(--vbar));
+  display: grid; grid-template-rows: 1fr auto auto auto;
+  gap: clamp(10px, 2vh, 28px); padding: clamp(14px, 3vh, 40px);
+  align-content: center; position: relative;
+}
+.drive-hero { text-align: center; }
+.drive-speed {
+  font-size: clamp(5rem, 24vh, 15rem); font-weight: 600; line-height: .86;
+  letter-spacing: -.04em; font-variant-numeric: tabular-nums;
+}
+.drive-unit {
+  font-size: clamp(.8rem, 2.2vh, 1.3rem); letter-spacing: .32em;
+  color: var(--faint); text-transform: uppercase; margin-top: .5rem;
+}
+.drive-state {
+  font-size: clamp(.8rem, 2vh, 1.2rem); color: var(--dim); margin-top: .3rem;
+  min-height: 1.4em;
+}
+.drive[data-state="offline"] .drive-speed { color: var(--faint); }
+
+.drive-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(8px, 1.4vw, 20px); }
+.drive-tile {
+  background: var(--panel); border: 1px solid var(--edge); border-radius: 14px;
+  padding: clamp(10px, 2vh, 22px); text-align: center;
+}
+.drive-tile-k {
+  font-size: clamp(.6rem, 1.5vh, .8rem); letter-spacing: .2em; color: var(--faint);
+  text-transform: uppercase;
+}
+.drive-tile-v {
+  font-size: clamp(2rem, 7vh, 4.2rem); font-weight: 600; line-height: 1.05;
+  font-variant-numeric: tabular-nums; margin-top: .2em;
+}
+.drive-tile-v.warn { color: var(--warn); }
+.drive-tile-v.bad  { color: var(--bad); }
+.drive-tile-n { font-size: clamp(.6rem, 1.5vh, .85rem); color: var(--faint); }
+
+.drive-trip { text-align: center; color: var(--dim); font-size: clamp(.75rem, 1.8vh, 1.05rem); }
+
+/* One target, the width of a thumb and then some. */
+.drive-exit {
+  border: 1px solid var(--edge-2); background: var(--panel-2); color: var(--dim);
+  border-radius: 14px; padding: clamp(12px, 2.4vh, 22px); font-size: 1rem;
+  letter-spacing: .1em; cursor: pointer; width: 100%;
+}
+.drive-exit:active { background: var(--raise); }
+
+/* An alert while driving owns the screen. Subtlety here would be a design
+   decision taken on somebody's behalf at speed. */
+.drive-alert {
+  position: absolute; inset: 0; z-index: 10; background: var(--ground);
+  display: grid; align-content: center; gap: clamp(10px, 2vh, 26px);
+  padding: clamp(18px, 5vw, 60px); text-align: center;
+}
+.drive-alert[hidden] { display: none; }
+.drive-alert[data-urgency="critical"] { background: color-mix(in srgb, var(--bad) 22%, var(--ground)); }
+.drive-alert[data-urgency="normal"]   { background: color-mix(in srgb, var(--warn) 18%, var(--ground)); }
+.drive-alert-k {
+  font-size: clamp(.7rem, 2vh, 1rem); letter-spacing: .3em; text-transform: uppercase;
+  color: var(--dim);
+}
+.drive-alert-t { font-size: clamp(1.6rem, 7vh, 4rem); font-weight: 600; line-height: 1.06; }
+.drive-alert-b { font-size: clamp(.95rem, 2.6vh, 1.5rem); color: var(--dim); max-width: 30ch; margin: 0 auto; }
+
+/* On a dashboard the rail is a row of things to poke at while driving. */
+@media (max-width: 760px), (max-height: 560px) {
+  .drive-row { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* The drive-mode editor. Offered only when the car is stopped, so it can be
+   ordinary-sized — but the targets are still thumbs, not pointers. */
+.drive-controls { display: grid; grid-auto-flow: column; gap: clamp(8px, 1.4vw, 16px); }
+.drive-editor {
+  background: var(--panel); border: 1px solid var(--edge); border-radius: 14px;
+  padding: clamp(12px, 2vh, 20px); display: grid; gap: 10px;
+  max-height: 46vh; overflow-y: auto;
+}
+.drive-editor[hidden] { display: none; }
+.drive-editor-k {
+  font-size: .62rem; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--faint); margin-top: 4px;
+}
+.drive-editor-n { font-size: .72rem; color: var(--faint); line-height: 1.5; }
+.drive-pick { display: flex; flex-wrap: wrap; gap: 8px; }
+.drive-pick button {
+  border: 1px solid var(--edge-2); background: var(--panel-2); color: var(--dim);
+  border-radius: 10px; padding: 10px 14px; font-size: .8rem; cursor: pointer;
+}
+.drive-pick button[aria-pressed="true"] { background: var(--raise); color: var(--ink); }
+.drive-pick button:disabled { opacity: .35; cursor: default; }
+.drive-chosen { display: flex; flex-wrap: wrap; gap: 8px; }
+.drive-chip {
+  display: flex; align-items: center; gap: 2px; background: var(--panel-2);
+  border: 1px solid var(--edge-2); border-radius: 10px; padding: 4px 4px 4px 12px;
+  font-size: .8rem;
+}
+.drive-chip > span { margin-right: 6px; }
+.drive-chip button {
+  border: 0; background: transparent; color: var(--faint); cursor: pointer;
+  font-size: 1rem; line-height: 1; padding: 8px 9px; border-radius: 8px;
+}
+.drive-chip button:hover:not(:disabled) { background: var(--raise); color: var(--ink); }
+.drive-chip button:disabled { opacity: .3; cursor: default; }
+.drive-speed.warn { color: var(--warn); }
+.drive-speed.bad { color: var(--bad); }

@@ -1,0 +1,740 @@
+{
+  "_about": "Diagnostic knowledge for OmaCar. Each entry says what the code means, what actually fixes it (ranked, with the share of repairs each accounts for), which live values prove it, and how to test. The shares are drawn from published repair-frequency data and service information, not from telemetry we collected — the app says so rather than implying a fleet we do not have. Codes not listed here fall through to the generic decoder in js/codes.js, which is why the tool still works on a car we have never seen.",
+  "_version": 1,
+
+  "P0135": {
+    "title": "O2 Sensor Heater Circuit Malfunction (Bank 1, Sensor 1)",
+    "system": "Fuel & air metering",
+    "severity": "warning",
+    "emissions": true,
+    "drivable": "Yes. Economy suffers on short trips and the car will not pass an emissions test until the monitor completes.",
+    "meaning": "The upstream oxygen sensor has a heater in it so the sensor reaches its 600 °F operating temperature in seconds instead of minutes. The ECU measures the current that heater draws. This code means the measurement was outside the window — usually an open element, occasionally the circuit feeding it.",
+    "symptoms": [
+      "Check engine light, often only after a cold start",
+      "Slightly worse economy for the first few minutes of a drive",
+      "Oxygen sensor and catalyst readiness monitors never complete"
+    ],
+    "causes": [
+      { "what": "Front oxygen sensor heater element failed open", "share": 64,
+        "note": "The element is a consumable. Most fail between 80,000 and 120,000 miles, and cold weather is when they announce it.",
+        "part": "36531-RTW-A01", "hours": 0.6 },
+      { "what": "Corroded or loose sensor connector", "share": 14,
+        "note": "The connector sits in the engine bay under the heat shield. Green pins, spread terminals, or a chafed harness against the manifold.",
+        "hours": 0.4 },
+      { "what": "Blown heater fuse or open in the supply", "share": 11,
+        "note": "Check the fuse feeding the sensor heaters before condemning the sensor — a fuse is four dollars and a sensor is a hundred.",
+        "hours": 0.3 },
+      { "what": "Chafed harness shorting to ground", "share": 7,
+        "hours": 1.0 },
+      { "what": "ECU driver failure", "share": 4,
+        "note": "Rare. Only after everything upstream has been proven good.",
+        "hours": 2.0 }
+    ],
+    "smart": [
+      { "pid": "MODE06:0x39", "label": "O2 heater resistance, B1S1", "expect": "1.0 – 10.0 Ω",
+        "why": "The actual measurement behind this code. A value creeping toward the top of the window is a sensor that has not failed yet but will." },
+      { "pid": "COOLANT_TEMP", "label": "Coolant temperature", "expect": "any",
+        "why": "This fault sets on cold starts. Knowing the temperature at which it set tells you whether it is heat-related." },
+      { "pid": "SHORT_FUEL_TRIM_1", "label": "Short fuel trim", "expect": "-10 – +10 %",
+        "why": "A slow sensor drags fuel trim about while it warms. If trim is settled, the sensing element is fine and it really is only the heater." },
+      { "pid": "LONG_FUEL_TRIM_1", "label": "Long fuel trim", "expect": "-10 – +10 %",
+        "why": "A standing positive trim alongside this code points at a second problem — a vacuum leak — rather than at the heater." }
+    ],
+    "tests": [
+      { "name": "Measure the heater element", "tools": "Digital multimeter",
+        "steps": [
+          "Engine off and cold. Unplug the front oxygen sensor connector.",
+          "Set the meter to ohms and measure across the two white wires on the sensor side.",
+          "Compare against the specification below."
+        ],
+        "expect": "1.0 – 10.0 Ω at room temperature. Open circuit (OL) condemns the sensor." },
+      { "name": "Prove the supply", "tools": "Digital multimeter",
+        "steps": [
+          "Leave the sensor unplugged, ignition on, engine off.",
+          "Measure voltage between the heater supply pin on the harness side and a known good ground."
+        ],
+        "expect": "Battery voltage. Nothing means a blown fuse or an open feed, and the sensor is innocent." },
+      { "name": "Wiggle test", "tools": "None",
+        "steps": [
+          "Watch the heater circuit live while moving the harness by hand along its run.",
+          "Pay attention where it passes the exhaust manifold heat shield."
+        ],
+        "expect": "A stable reading. Any flicker is the fault, and it is the harness, not the sensor." }
+    ],
+    "clearing": "Clearing this resets the oxygen sensor and catalyst monitors, which then need several complete drive cycles to run again. Do not clear it the day before an emissions test."
+  },
+
+  "P1449": {
+    "title": "Battery Module Deterioration (IMA)",
+    "system": "Hybrid",
+    "severity": "warning",
+    "manufacturer": "Honda",
+    "emissions": false,
+    "drivable": "Yes. The car runs on the petrol engine regardless; assist and regeneration are limited to protect the pack.",
+    "meaning": "Honda's own code for an IMA pack whose cell blocks no longer hold a matched charge. The motor control unit watches the spread between the weakest and strongest of the twenty cell blocks; when the weak one falls far enough behind, the pack can no longer be balanced and this sets.",
+    "symptoms": [
+      "IMA light on the dash",
+      "State-of-charge gauge swinging quickly between full and empty",
+      "Assist cuts out early; regeneration braking feels weaker",
+      "A 'recalibration' cycle where the car deliberately runs the pack flat and refills it"
+    ],
+    "causes": [
+      { "what": "Genuine pack degradation — one or more weak cell blocks", "share": 71,
+        "note": "The NiMH pack is a wear item. Eleven years and 85,000 miles is squarely in the window.",
+        "part": "1D100-RTW-C00", "hours": 4.0 },
+      { "what": "Battery condition monitor sensing fault", "share": 12,
+        "note": "The module that measures the blocks can fail and report a spread that is not there. Worth ruling out before buying a pack.",
+        "hours": 2.0 },
+      { "what": "Cooling fan or duct blocked", "share": 10,
+        "note": "The pack lives behind the rear seats and breathes cabin air. A blocked filter cooks it, and a cooked pack degrades fast. Cheap to check, and it is why the replacement pack fails too if you skip it.",
+        "hours": 0.7 },
+      { "what": "Corroded pack bus bars or loose junction board", "share": 7,
+        "hours": 2.5 }
+    ],
+    "smart": [
+      { "pid": "MODE06:0x5B", "label": "IMA pack capacity", "expect": "≥ 0.70 of new",
+        "why": "The measurement this code is made of. Below 0.70 the control unit starts limiting." },
+      { "pid": "MODE06:0x5C", "label": "Cell block spread", "expect": "≤ 0.30 V",
+        "why": "How far apart the best and worst blocks are at the end of a discharge. A large spread with adequate capacity points at one bad block rather than a tired pack." },
+      { "pid": "CONTROL_MODULE_VOLTAGE", "label": "12 V system", "expect": "13.2 – 14.8 V running",
+        "why": "The IMA system charges the 12 V battery through a DC-DC converter. A low 12 V reading alongside this can mean the converter, not the pack." }
+    ],
+    "tests": [
+      { "name": "Watch a full charge-discharge cycle", "tools": "OmaCar data recording",
+        "steps": [
+          "Record a drive that includes a long descent and a long climb.",
+          "Plot state of charge against assist and regeneration current.",
+          "Look for the gauge collapsing under load rather than draining smoothly."
+        ],
+        "expect": "A pack in good health drains and fills in proportion to the current. One that drops from three quarters to one quarter under a single climb has a weak block." },
+      { "name": "Check the pack's cooling path", "tools": "None",
+        "steps": [
+          "Remove the rear seat back and find the IMA cooling intake.",
+          "Inspect the filter and duct for dust, coins and the general contents of a car.",
+          "Run the fan and confirm airflow."
+        ],
+        "expect": "Clear airflow. This is the single most skipped step in IMA work and the reason replacement packs fail early." }
+    ],
+    "clearing": "Clearing this does not fix the pack, and the code returns within a few cycles if the deterioration is real. It is worth clearing exactly once after servicing the cooling path, to see whether it comes back."
+  },
+
+  "P0A7F": {
+    "title": "Hybrid Battery Pack Deterioration",
+    "system": "Hybrid",
+    "severity": "warning",
+    "emissions": false,
+    "drivable": "Yes, with reduced hybrid assist.",
+    "meaning": "The generic OBD-II twin of the manufacturer's own pack-deterioration code. Measured usable capacity has fallen below the threshold the manufacturer set.",
+    "symptoms": [
+      "Hybrid warning light",
+      "Reduced electric assist",
+      "State of charge behaving erratically"
+    ],
+    "causes": [
+      { "what": "Pack at end of service life", "share": 78, "hours": 4.0 },
+      { "what": "One failed cell block dragging the pack down", "share": 14,
+        "note": "Worth measuring before replacing the whole pack — a single block is a fraction of the cost.", "hours": 3.0 },
+      { "what": "Battery condition monitor reporting falsely", "share": 8, "hours": 2.0 }
+    ],
+    "smart": [
+      { "pid": "MODE06:0x5B", "label": "IMA pack capacity", "expect": "≥ 0.70 of new",
+        "why": "The threshold this code is measured against." },
+      { "pid": "MODE06:0x5C", "label": "Cell block spread", "expect": "≤ 0.30 V",
+        "why": "Separates one bad block from a uniformly tired pack, which is a very different bill." }
+    ],
+    "tests": [
+      { "name": "Confirm against the manufacturer code", "tools": "OmaCar scan",
+        "steps": ["Read the hybrid module's own codes.", "P1449 alongside this is the same finding twice, not two faults."],
+        "expect": "Both codes present and both pointing at the pack." }
+    ],
+    "clearing": "Returns as soon as the pack is measured again unless the pack was actually serviced."
+  },
+
+  "P0420": {
+    "title": "Catalyst System Efficiency Below Threshold (Bank 1)",
+    "system": "Emissions",
+    "severity": "warning",
+    "emissions": true,
+    "drivable": "Yes. It is an emissions fault, not a mechanical one.",
+    "meaning": "The ECU compares the rear oxygen sensor's switching against the front sensor's. A healthy catalyst stores oxygen and smooths the rear signal almost flat. When the rear starts to mirror the front, the converter has stopped storing, and this sets.",
+    "symptoms": [
+      "Check engine light with no change in how the car drives",
+      "Sometimes a faint sulphur smell",
+      "Failed emissions test"
+    ],
+    "causes": [
+      { "what": "Catalytic converter genuinely worn out", "share": 47,
+        "note": "The honest answer at high mileage — but it is the expensive answer, so prove the two below first.",
+        "hours": 1.5 },
+      { "what": "Rear oxygen sensor lazy or failed", "share": 27,
+        "note": "A slow rear sensor looks exactly like a dead catalyst from the ECU's side, and costs a tenth as much.",
+        "part": "36532-RTW-A01", "hours": 0.6 },
+      { "what": "Exhaust leak ahead of the rear sensor", "share": 15,
+        "note": "A pinhole before the sensor lets air in, and the sensor reads lean and switches like a front sensor. Look at the flex joint and the manifold flange.",
+        "hours": 1.0 },
+      { "what": "Engine fault poisoning the converter", "share": 11,
+        "note": "Misfire or oil consumption will kill a new converter as fast as it killed the old one. Fix the cause before you fit the cure.",
+        "hours": 0.0 }
+    ],
+    "smart": [
+      { "pid": "MODE06:0x21", "label": "Catalyst switch ratio", "expect": "< 0.750",
+        "why": "The measurement the code is made of. Watching it climb over months is how you predict this code before it sets." },
+      { "pid": "SHORT_FUEL_TRIM_1", "label": "Short fuel trim", "expect": "-10 – +10 %",
+        "why": "Wild trim means a fuelling fault that will destroy the new converter too." },
+      { "pid": "COOLANT_TEMP", "label": "Coolant temperature", "expect": "> 176 °F",
+        "why": "The catalyst monitor only runs fully warm. A thermostat stuck open stops the monitor and muddies everything." }
+    ],
+    "tests": [
+      { "name": "Compare the two oxygen sensors", "tools": "OmaCar data recording",
+        "steps": [
+          "Warm the engine fully and hold 2,500 rpm.",
+          "Record both oxygen sensor voltages for thirty seconds.",
+          "Overlay them."
+        ],
+        "expect": "The front sensor should swing between roughly 0.1 and 0.9 V several times a second. The rear should sit nearly still around 0.6 – 0.7 V. A rear sensor that copies the front is either a dead catalyst or a dead sensor." },
+      { "name": "Rule out the rear sensor", "tools": "Infrared thermometer",
+        "steps": [
+          "With the engine warm, measure the pipe temperature immediately before and immediately after the converter."
+        ],
+        "expect": "A working converter runs hotter out than in, typically by 50 – 100 °F. Equal temperatures mean the converter is not lighting off." }
+    ],
+    "clearing": "Clearing resets the catalyst monitor, which needs a full drive cycle including steady cruise to run again."
+  },
+
+  "P0301": {
+    "title": "Cylinder 1 Misfire Detected",
+    "system": "Ignition",
+    "severity": "critical",
+    "emissions": true,
+    "drivable": "Only briefly. A flashing check engine light means raw fuel is reaching the catalytic converter and destroying it — stop driving.",
+    "meaning": "The ECU watches the crankshaft speed between firing events. When cylinder 1's contribution goes missing often enough, it sets this. It is a symptom, not a diagnosis: the cause is spark, fuel or compression, in that order of likelihood.",
+    "symptoms": [
+      "Rough idle, shaking at a standstill",
+      "Loss of power and a stumble under load",
+      "Check engine light, flashing under load if the misfire is severe",
+      "Fuel smell from the exhaust"
+    ],
+    "causes": [
+      { "what": "Worn or fouled spark plug", "share": 41,
+        "note": "Always first. Cheap, fast, and right more often than anything else.",
+        "part": "ILZKR7B-11S", "hours": 0.5 },
+      { "what": "Failed ignition coil", "share": 33,
+        "note": "Swap the coil to another cylinder and clear the code. If the misfire follows, you have your answer for the price of ten minutes.",
+        "part": "30520-RB0-S01", "hours": 0.4 },
+      { "what": "Clogged or leaking injector", "share": 13, "hours": 1.2 },
+      { "what": "Vacuum leak at the intake runner", "share": 7, "hours": 0.8 },
+      { "what": "Low compression — valve or ring", "share": 6,
+        "note": "The expensive answer. A compression test settles it in fifteen minutes.",
+        "hours": 1.0 }
+    ],
+    "smart": [
+      { "pid": "MODE06:0x01", "label": "Misfire count, cylinder 1", "expect": "< 40 counts",
+        "why": "The running total. It is how you tell a misfire that happens once a week from one that happens every second." },
+      { "pid": "RPM", "label": "Engine speed", "expect": "any",
+        "why": "A misfire only at idle points at a vacuum leak or a lazy injector; one only under load points at ignition." },
+      { "pid": "ENGINE_LOAD", "label": "Calculated load", "expect": "any",
+        "why": "Load at the moment of the misfire is the single most useful number for narrowing spark against fuel." },
+      { "pid": "SHORT_FUEL_TRIM_1", "label": "Short fuel trim", "expect": "-10 – +10 %",
+        "why": "A misfire makes the exhaust read lean, so trim swings positive. If it does not, suspect the sensor rather than the cylinder." }
+    ],
+    "tests": [
+      { "name": "Swap the coil", "tools": "8 mm socket",
+        "steps": [
+          "Move cylinder 1's coil to cylinder 3 and cylinder 3's to cylinder 1.",
+          "Clear the code and drive until the misfire returns.",
+          "Read the code again."
+        ],
+        "expect": "P0303 means the coil is bad. P0301 again means the coil is fine and the fault is in the cylinder." },
+      { "name": "Compression test", "tools": "Compression gauge",
+        "steps": ["Engine warm, all plugs out, throttle held open.", "Crank each cylinder for five compression strokes."],
+        "expect": "Within 10% across all four cylinders. One low cylinder is a mechanical fault and no amount of ignition parts will fix it." }
+    ],
+    "clearing": "Do not clear this to make the light go away. A flashing light is the car asking you to stop."
+  },
+
+  "B1225": {
+    "title": "Blower Motor Circuit — Low Speed",
+    "system": "Body",
+    "severity": "normal",
+    "manufacturer": "Honda",
+    "emissions": false,
+    "drivable": "Yes. It is a comfort fault.",
+    "meaning": "The climate control unit commanded the lowest blower speed and did not see the current it expected. On this car the low speeds run through a resistor pack; the highest speed bypasses it, which is why one speed working and the others not is the classic pattern.",
+    "symptoms": [
+      "Fan does nothing on speed 1, works on the higher speeds",
+      "Or: fan only works on maximum"
+    ],
+    "causes": [
+      { "what": "Blower motor resistor pack burnt out", "share": 81,
+        "note": "It is a sacrificial part sitting in the airflow. If the cabin filter was left blocked, that is why it cooked.",
+        "part": "79330-SZT-A01", "hours": 0.5 },
+      { "what": "Blocked cabin filter overheating the resistor", "share": 11,
+        "note": "Replace this at the same time or the new resistor goes the same way.",
+        "part": "80292-SDA-A01", "hours": 0.2 },
+      { "what": "Blower motor drawing excess current", "share": 8,
+        "note": "A dying motor kills resistors. Measure the current draw before fitting a third one.",
+        "hours": 0.8 }
+    ],
+    "smart": [],
+    "tests": [
+      { "name": "Measure blower current", "tools": "Clamp meter",
+        "steps": ["Run the blower on maximum.", "Clamp the motor's supply lead."],
+        "expect": "Within the motor's rating. A motor pulling well over spec is what burnt the resistor, and it will burn the next one." }
+    ],
+    "clearing": "Clears once the circuit reads correctly."
+  },
+
+  "C1B00": {
+    "title": "Deflation Warning System Needs Initialisation",
+    "system": "Chassis",
+    "severity": "normal",
+    "manufacturer": "Honda",
+    "emissions": false,
+    "drivable": "Yes. Nothing is broken.",
+    "meaning": "This car has an indirect tyre pressure system: rather than sensors in the wheels, it watches wheel speeds and infers that a tyre has gone soft because it is turning faster. That comparison has to be re-taught whenever the tyres are rotated, replaced or reinflated.",
+    "symptoms": ["Tyre pressure warning light on with all four tyres correctly inflated"],
+    "causes": [
+      { "what": "Not calibrated after a tyre rotation", "share": 92,
+        "note": "Set all four pressures cold to the door placard, then hold the calibration button until it beeps twice.",
+        "hours": 0.1 },
+      { "what": "One tyre a materially different size or wear", "share": 6, "hours": 0.0 },
+      { "what": "Wheel speed sensor drift", "share": 2, "hours": 1.0 }
+    ],
+    "smart": [],
+    "tests": [
+      { "name": "Calibrate", "tools": "Tyre pressure gauge",
+        "steps": [
+          "Check and set all four tyres cold to the placard pressure.",
+          "Ignition on, engine off.",
+          "Hold the deflation warning calibration button until the indicator blinks twice.",
+          "Drive normally for thirty minutes above 30 mph."
+        ],
+        "expect": "The light goes out and stays out." }
+    ],
+    "clearing": "Calibrate rather than clear — clearing without calibrating brings it straight back."
+  },
+
+  "P0171": {
+    "title": "System Too Lean (Bank 1)",
+    "system": "Fuel & air metering",
+    "severity": "warning",
+    "emissions": true,
+    "drivable": "Yes, but a persistent lean condition runs the engine hot and will eventually damage it.",
+    "meaning": "Long-term fuel trim has hit its positive limit — the ECU has been adding as much fuel as it is allowed to and the mixture is still lean. Either air is getting in that the sensor did not measure, or fuel is not arriving.",
+    "symptoms": ["Rough idle", "Hesitation on acceleration", "Check engine light", "Sometimes a whistle from a vacuum leak"],
+    "causes": [
+      { "what": "Vacuum leak — hose, intake gasket, PCV", "share": 44,
+        "note": "Trim that is bad at idle and fine at cruise is a vacuum leak almost every time; the leak is a large share of a small airflow at idle and a trivial share of a big one at speed.",
+        "hours": 1.0 },
+      { "what": "Dirty or failing mass air flow sensor", "share": 26,
+        "note": "Clean it before replacing it. Trim bad at cruise and fine at idle points here rather than at a leak.",
+        "hours": 0.4 },
+      { "what": "Weak fuel pump or clogged filter", "share": 14, "hours": 1.5 },
+      { "what": "Leaking exhaust before the front oxygen sensor", "share": 10, "hours": 1.0 },
+      { "what": "Failing front oxygen sensor", "share": 6, "hours": 0.6 }
+    ],
+    "smart": [
+      { "pid": "LONG_FUEL_TRIM_1", "label": "Long fuel trim", "expect": "-10 – +10 %",
+        "why": "The value that set the code. Compare it at idle against at cruise — that one comparison splits a vacuum leak from a metering fault." },
+      { "pid": "SHORT_FUEL_TRIM_1", "label": "Short fuel trim", "expect": "-10 – +10 %",
+        "why": "Short trim swinging while long trim sits pegged means the ECU is still chasing it." },
+      { "pid": "MAF", "label": "Mass air flow", "expect": "2 – 7 g/s at idle",
+        "why": "A sensor reading low is the cause; one reading correctly moves suspicion to a leak downstream of it." },
+      { "pid": "ENGINE_LOAD", "label": "Calculated load", "expect": "15 – 30 % at idle",
+        "why": "Load derives from airflow, so an implausible idle load corroborates a lying sensor." }
+    ],
+    "tests": [
+      { "name": "Find the leak", "tools": "Smoke machine, or propane",
+        "steps": [
+          "Introduce smoke into the intake with the engine off and watch for it escaping.",
+          "Or, engine idling, play unlit propane around the intake gasket, hoses and PCV."
+        ],
+        "expect": "Smoke escaping, or the idle rising as propane is drawn in, marks the leak exactly." },
+      { "name": "Compare trims at two loads", "tools": "OmaCar data recording",
+        "steps": ["Record long fuel trim at idle.", "Record it again at a steady 2,500 rpm cruise."],
+        "expect": "Bad at idle, good at cruise: vacuum leak. Bad at both: metering or fuel supply. Good at idle, bad at cruise: fuel delivery." }
+    ],
+    "clearing": "Fix first. Trim relearns over a few dozen miles, so re-check the value rather than the light."
+  },
+
+  "P0128": {
+    "title": "Coolant Thermostat Below Regulating Temperature",
+    "system": "Cooling",
+    "severity": "normal",
+    "emissions": true,
+    "drivable": "Yes, but economy suffers and several emissions monitors will never run.",
+    "meaning": "The ECU models how long the engine should take to reach operating temperature given the ambient temperature and how far you have driven. The engine did not get there. Almost always a thermostat stuck open.",
+    "symptoms": ["Temperature gauge reading low or slow to rise", "Weak cabin heat", "Worse economy", "Readiness monitors not completing"],
+    "causes": [
+      { "what": "Thermostat stuck open", "share": 83, "part": "19301-RB0-004", "hours": 1.0 },
+      { "what": "Coolant temperature sensor reading low", "share": 11,
+        "note": "Compare the sensor's reading against an infrared thermometer on the housing before changing the thermostat.",
+        "hours": 0.4 },
+      { "what": "Low coolant level", "share": 6, "hours": 0.2 }
+    ],
+    "smart": [
+      { "pid": "COOLANT_TEMP", "label": "Coolant temperature", "expect": "176 – 205 °F when warm",
+        "why": "The value that set the code. Watch it climb from cold — a thermostat stuck open plateaus far short." },
+      { "pid": "INTAKE_TEMP", "label": "Intake air temperature", "expect": "ambient + 10 – 40 °F",
+        "why": "A cold-soaked engine should read both sensors close together at start. If they differ at start, one of them is lying." }
+    ],
+    "tests": [
+      { "name": "Warm-up curve", "tools": "OmaCar data recording",
+        "steps": ["Record coolant temperature from a genuinely cold start for fifteen minutes of normal driving."],
+        "expect": "A steady climb to about 190 °F and then a hold. A curve that flattens at 150 °F is a thermostat stuck open." }
+    ],
+    "clearing": "Clearing resets the monitors that depend on a warm engine, so drive a full cycle afterwards."
+  },
+
+  "P0442": {
+    "title": "Evaporative Emission System Leak Detected (Small Leak)",
+    "system": "Emissions",
+    "severity": "normal",
+    "emissions": true,
+    "drivable": "Yes. Nothing about the car changes.",
+    "meaning": "The fuel system is sealed, and the ECU periodically pressurises or evacuates it to check. A small leak was found — the standard is an orifice about the size of a pinhole.",
+    "symptoms": ["Check engine light and nothing else", "Occasionally a faint fuel smell"],
+    "causes": [
+      { "what": "Fuel cap loose, worn or the wrong one", "share": 38,
+        "note": "Always check first. Free.", "hours": 0.1 },
+      { "what": "Cracked or perished EVAP hose", "share": 26, "hours": 0.8 },
+      { "what": "Leaking purge or vent valve", "share": 21, "hours": 0.8 },
+      { "what": "Cracked charcoal canister", "share": 9, "hours": 1.2 },
+      { "what": "Fuel filler neck corroded", "share": 6, "hours": 1.5 }
+    ],
+    "smart": [
+      { "pid": "MODE06:0x41", "label": "EVAP leak check", "expect": "< 0.040 in",
+        "why": "The measured equivalent orifice. It tells you how big the leak is, which tells you where to look." },
+      { "pid": "MODE06:0x42", "label": "EVAP purge flow", "expect": "≥ 0.30",
+        "why": "Separates a leak from a purge valve that is not sealing." }
+    ],
+    "tests": [
+      { "name": "Smoke the system", "tools": "Smoke machine",
+        "steps": ["Seal the system and introduce smoke at the service port.", "Trace the escape, working from the filler neck forward."],
+        "expect": "Visible smoke at the leak. Everything else is guessing." }
+    ],
+    "clearing": "The EVAP monitor is fussy — it usually only runs with the tank between a quarter and three quarters full and after a long cold soak. Expect several days before it re-runs."
+  },
+
+  "P0455": {
+    "title": "Evaporative Emission System Leak Detected (Large Leak)",
+    "system": "Emissions",
+    "severity": "normal",
+    "emissions": true,
+    "drivable": "Yes.",
+    "meaning": "The same self-test as P0442, but the leak is large enough that the system could not build or hold any pressure at all. A missing fuel cap is the textbook cause.",
+    "symptoms": ["Check engine light", "Fuel smell"],
+    "causes": [
+      { "what": "Fuel cap missing, loose or cross-threaded", "share": 52, "hours": 0.1 },
+      { "what": "Vent valve stuck open", "share": 22, "hours": 0.8 },
+      { "what": "Disconnected or split EVAP hose", "share": 19, "hours": 0.6 },
+      { "what": "Damaged canister", "share": 7, "hours": 1.2 }
+    ],
+    "smart": [
+      { "pid": "MODE06:0x41", "label": "EVAP leak check", "expect": "< 0.040 in",
+        "why": "A large leak reads far past the limit or fails to complete at all." }
+    ],
+    "tests": [
+      { "name": "Check the obvious", "tools": "None",
+        "steps": ["Remove and refit the fuel cap, listening for the ratchet.", "Inspect the seal for cracking or a flat spot."],
+        "expect": "A cap that ratchets and seals. This fixes half of these." }
+    ],
+    "clearing": "Clear after fixing, then wait for the monitor to run before assuming success."
+  },
+
+  "P0401": {
+    "title": "Exhaust Gas Recirculation Flow Insufficient",
+    "system": "Emissions",
+    "severity": "normal",
+    "emissions": true,
+    "drivable": "Yes, though pinging under load is possible.",
+    "meaning": "EGR routes a measured amount of inert exhaust back into the intake to lower combustion temperature and cut oxides of nitrogen. The ECU commanded flow and did not see the effect it expected.",
+    "symptoms": ["Check engine light", "Pinging or knock under load", "Occasionally a rough idle"],
+    "causes": [
+      { "what": "Carbon-blocked EGR passages", "share": 58,
+        "note": "The ports coke up. Cleaning is usually the whole repair.", "hours": 1.5 },
+      { "what": "EGR valve stuck or failed", "share": 27, "hours": 1.0 },
+      { "what": "EGR position sensor faulty", "share": 9, "hours": 0.6 },
+      { "what": "Vacuum supply or solenoid fault", "share": 6, "hours": 0.7 }
+    ],
+    "smart": [
+      { "pid": "RPM", "label": "Engine speed", "expect": "any",
+        "why": "Commanding EGR at idle should stumble the engine. If nothing happens, nothing is flowing." },
+      { "pid": "SHORT_FUEL_TRIM_1", "label": "Short fuel trim", "expect": "-10 – +10 %",
+        "why": "EGR flowing when it should not shows up as a trim disturbance at idle." }
+    ],
+    "tests": [
+      { "name": "Force the valve open at idle", "tools": "Bi-directional scan tool",
+        "steps": ["At warm idle, command the EGR valve open."],
+        "expect": "The idle should drop or stumble noticeably. A completely unchanged idle means the passages are blocked, not that the valve is bad." }
+    ],
+    "clearing": "The EGR monitor runs on a steady cruise. Clear, then drive twenty minutes including highway."
+  },
+
+  "P0505": {
+    "title": "Idle Air Control System Malfunction",
+    "system": "Fuel & air metering",
+    "severity": "normal",
+    "emissions": false,
+    "drivable": "Yes, though stalling at junctions is unpleasant.",
+    "meaning": "The ECU could not hold the commanded idle speed with the authority it has over idle air.",
+    "symptoms": ["Idle hunting up and down", "Stalling when coming to a stop", "High idle that will not come down"],
+    "causes": [
+      { "what": "Carbon in the throttle body and idle passage", "share": 49,
+        "note": "Clean it and relearn the idle before buying anything.", "hours": 0.6 },
+      { "what": "Failed idle air control valve", "share": 26, "hours": 0.8 },
+      { "what": "Vacuum leak", "share": 18, "hours": 1.0 },
+      { "what": "Throttle position sensor out of range", "share": 7, "hours": 0.5 }
+    ],
+    "smart": [
+      { "pid": "RPM", "label": "Engine speed", "expect": "650 – 850 at warm idle",
+        "why": "How far off, and whether it hunts or simply sits wrong." },
+      { "pid": "THROTTLE_POS", "label": "Throttle position", "expect": "10 – 16 % closed",
+        "why": "A closed-throttle reading that has drifted makes the ECU think the pedal is pressed." },
+      { "pid": "ENGINE_LOAD", "label": "Calculated load", "expect": "15 – 30 % at idle",
+        "why": "High idle load with a clean throttle body points at a leak." }
+    ],
+    "tests": [
+      { "name": "Clean and relearn", "tools": "Throttle cleaner",
+        "steps": ["Clean the throttle bore and plate.", "Perform the idle relearn procedure.", "Let the engine idle undisturbed for ten minutes."],
+        "expect": "A steady idle within specification." }
+    ],
+    "clearing": "Relearn after clearing, or the idle will be wrong for the first few miles."
+  },
+
+  "P0113": {
+    "title": "Intake Air Temperature Sensor Circuit High",
+    "system": "Fuel & air metering",
+    "severity": "normal",
+    "emissions": true,
+    "drivable": "Yes.",
+    "meaning": "The intake air temperature signal read at or near supply voltage, which corresponds to an implausibly cold reading. The circuit is open somewhere.",
+    "symptoms": ["Check engine light", "Slightly rough cold start", "Intake temperature reading absurdly low"],
+    "causes": [
+      { "what": "Disconnected or corroded sensor connector", "share": 41, "hours": 0.3 },
+      { "what": "Failed sensor element", "share": 34, "hours": 0.4 },
+      { "what": "Open in the signal or ground wire", "share": 19, "hours": 1.0 },
+      { "what": "ECU input fault", "share": 6, "hours": 2.0 }
+    ],
+    "smart": [
+      { "pid": "INTAKE_TEMP", "label": "Intake air temperature", "expect": "ambient + 10 – 40 °F",
+        "why": "The reading itself. A cold-soaked car should show intake and coolant within a few degrees of each other." },
+      { "pid": "COOLANT_TEMP", "label": "Coolant temperature", "expect": "ambient when cold",
+        "why": "The reference. Two sensors that agree at cold start are both probably fine." }
+    ],
+    "tests": [
+      { "name": "Jumper the connector", "tools": "Jumper wire",
+        "steps": ["Unplug the sensor and bridge signal to ground at the connector.", "Watch the live intake temperature."],
+        "expect": "The reading should slam to its maximum. If it does, the wiring and ECU are fine and the sensor is bad." }
+    ],
+    "clearing": "Clears immediately once the circuit reads plausibly."
+  },
+
+  "P0562": {
+    "title": "System Voltage Low",
+    "system": "Electrical",
+    "severity": "warning",
+    "emissions": false,
+    "drivable": "Not far. A charging fault ends with the car stopping wherever it happens to be.",
+    "meaning": "The ECU saw system voltage below the threshold with the engine running. Something is not charging.",
+    "symptoms": ["Battery light", "Dim lights", "Several unrelated modules setting codes at once", "Slow cranking"],
+    "causes": [
+      { "what": "Failing alternator or DC-DC converter", "share": 48,
+        "note": "On this hybrid the 12 V system is fed by a converter from the IMA pack rather than a conventional alternator. That is a different part and a different diagnosis.",
+        "hours": 1.5 },
+      { "what": "Battery at end of life", "share": 26, "hours": 0.3 },
+      { "what": "Corroded or loose battery terminals and grounds", "share": 18,
+        "note": "Free to check and genuinely common. Do this before anything else.", "hours": 0.3 },
+      { "what": "Parasitic drain", "share": 8, "hours": 2.0 }
+    ],
+    "smart": [
+      { "pid": "CONTROL_MODULE_VOLTAGE", "label": "System voltage", "expect": "13.2 – 14.8 V running",
+        "why": "The value that set the code. Below 13 with the engine running means it is not charging." },
+      { "pid": "RPM", "label": "Engine speed", "expect": "any",
+        "why": "Voltage that recovers with revs points at a marginal charging source rather than a dead one." }
+    ],
+    "tests": [
+      { "name": "Voltage across the load range", "tools": "Digital multimeter",
+        "steps": [
+          "Measure at the battery, engine off: note it.",
+          "Start and measure again at idle.",
+          "Switch on headlights, blower and rear demister and measure once more."
+        ],
+        "expect": "About 12.6 V off, 13.5 – 14.7 V running, and no lower than 13.0 V under full load. Anything less is a charging fault." }
+    ],
+    "clearing": "Clear only after the charging fault is fixed — a low-voltage event sets nonsense codes in every module and those need clearing too."
+  },
+
+  "P0700": {
+    "title": "Transmission Control System Malfunction",
+    "system": "Transmission",
+    "severity": "warning",
+    "emissions": false,
+    "drivable": "Depends entirely on the code behind it.",
+    "meaning": "This is not a fault in itself. It is the engine ECU relaying that the transmission control unit has set a code of its own. The real information is in the transmission module.",
+    "symptoms": ["Check engine light", "Harsh or missing shifts", "Limp mode"],
+    "causes": [
+      { "what": "A transmission-module code that this one is pointing at", "share": 100,
+        "note": "Read the transmission module directly. Treating P0700 as the fault is the single most common wasted afternoon in this trade.",
+        "hours": 0.0 }
+    ],
+    "smart": [],
+    "tests": [
+      { "name": "Read the transmission module", "tools": "OmaCar full-system scan",
+        "steps": ["Run a full-system scan rather than a generic powertrain read.", "Open the transmission module's own code list."],
+        "expect": "One or more specific codes. Diagnose those." }
+    ],
+    "clearing": "Clearing this without clearing the underlying transmission code just brings it back on the next cycle."
+  },
+
+  "P0325": {
+    "title": "Knock Sensor Circuit Malfunction (Bank 1)",
+    "system": "Ignition",
+    "severity": "warning",
+    "emissions": true,
+    "drivable": "Yes, but the ECU retards timing defensively, so it will feel flat and drink more.",
+    "meaning": "The knock sensor is a microphone bolted to the block that lets the ECU run timing right up to the edge of detonation. With the sensor out of circuit, the ECU backs timing off across the board as insurance.",
+    "symptoms": ["Noticeable loss of power", "Worse economy", "Check engine light", "Sometimes audible pinging under load"],
+    "causes": [
+      { "what": "Failed knock sensor", "share": 51, "hours": 1.2 },
+      { "what": "Corroded connector or chafed harness", "share": 29,
+        "note": "The sensor lives on the block under the intake and its wiring has a hard life.", "hours": 1.0 },
+      { "what": "Loose sensor mounting", "share": 13,
+        "note": "Torque matters — a sensor that is not clamped correctly cannot hear.", "hours": 0.6 },
+      { "what": "ECU input fault", "share": 7, "hours": 2.0 }
+    ],
+    "smart": [
+      { "pid": "TIMING_ADVANCE", "label": "Ignition timing advance", "expect": "8 – 25 ° at cruise",
+        "why": "Timing pinned low across the whole load range is the ECU protecting itself. It is the symptom you can actually see." },
+      { "pid": "ENGINE_LOAD", "label": "Calculated load", "expect": "any",
+        "why": "Timing should advance as load falls. A flat line against load confirms the ECU has stopped trusting the sensor." }
+    ],
+    "tests": [
+      { "name": "Tap test", "tools": "Small spanner, OmaCar data recording",
+        "steps": ["With the engine idling, tap the block near the sensor with a spanner.", "Watch timing advance live."],
+        "expect": "Timing should retard in response. No response at all means the ECU is not hearing the sensor." }
+    ],
+    "clearing": "Timing recovers immediately once the circuit is good."
+  },
+
+  "P0011": {
+    "title": "Camshaft Position — Timing Over-Advanced (Bank 1)",
+    "system": "Ignition",
+    "severity": "warning",
+    "emissions": true,
+    "drivable": "Yes, with reduced power and economy.",
+    "meaning": "Variable valve timing moves the camshaft relative to the crankshaft using oil pressure. The ECU commanded a position and the cam went further than asked, or would not come back.",
+    "symptoms": ["Rough idle", "Loss of low-end torque", "Rattle on start-up", "Check engine light"],
+    "causes": [
+      { "what": "Dirty oil or an overdue oil change", "share": 42,
+        "note": "The whole system runs on oil pressure through very small passages. This is the code that punishes a skipped service, and an oil change fixes it more often than anything else.",
+        "hours": 0.5 },
+      { "what": "Stuck VVT oil control solenoid", "share": 31,
+        "note": "Remove it and check the screen — they clog with varnish.", "hours": 0.8 },
+      { "what": "Worn cam phaser", "share": 17, "hours": 3.5 },
+      { "what": "Low oil pressure", "share": 10, "hours": 1.0 }
+    ],
+    "smart": [
+      { "pid": "RPM", "label": "Engine speed", "expect": "any",
+        "why": "VVT authority varies with engine speed; the fault often only appears in one band." },
+      { "pid": "COOLANT_TEMP", "label": "Coolant temperature", "expect": "> 176 °F",
+        "why": "Oil viscosity is temperature dependent. A fault that only appears cold is a viscosity or clearance problem, not a solenoid." },
+      { "pid": "ENGINE_LOAD", "label": "Calculated load", "expect": "any",
+        "why": "Correlating the fault against load narrows the oil pressure question." }
+    ],
+    "tests": [
+      { "name": "Check the oil first", "tools": "None",
+        "steps": ["Check level and condition.", "Check the service record for the last change."],
+        "expect": "Clean oil at the correct level. If it is black and overdue, change it and re-test before spending anything." }
+    ],
+    "clearing": "Clear after the oil change and drive a full cycle before drawing conclusions."
+  },
+
+  "P0102": {
+    "title": "Mass Air Flow Circuit Low Input",
+    "system": "Fuel & air metering",
+    "severity": "warning",
+    "emissions": true,
+    "drivable": "Yes, poorly. The ECU falls back to a calculated airflow model.",
+    "meaning": "The mass air flow sensor reported less air than is physically possible for the engine speed. Either the sensor is dirty or failing, or air is getting in past it.",
+    "symptoms": ["Hesitation and stumble", "Rough idle", "Black smoke or a rich smell", "Poor economy"],
+    "causes": [
+      { "what": "Contaminated sensor element", "share": 44,
+        "note": "An oiled aftermarket air filter is the usual culprit. Clean with the proper spray, never a rag.", "hours": 0.3 },
+      { "what": "Air leak between the sensor and the throttle body", "share": 28,
+        "note": "Any air entering after the sensor is air the ECU never measured. Check the intake boot for splits on its underside.", "hours": 0.5 },
+      { "what": "Failed sensor", "share": 20, "hours": 0.5 },
+      { "what": "Wiring or connector fault", "share": 8, "hours": 1.0 }
+    ],
+    "smart": [
+      { "pid": "MAF", "label": "Mass air flow", "expect": "2 – 7 g/s at idle",
+        "why": "The value itself. As a rule of thumb a healthy engine flows roughly its displacement in litres, times engine speed in thousands, times 0.6 g/s." },
+      { "pid": "LONG_FUEL_TRIM_1", "label": "Long fuel trim", "expect": "-10 – +10 %",
+        "why": "A sensor under-reporting drives trim strongly positive, which is how you tell it apart from a wiring fault." },
+      { "pid": "ENGINE_LOAD", "label": "Calculated load", "expect": "15 – 30 % at idle",
+        "why": "Load is computed from airflow, so it inherits the lie and confirms it." }
+    ],
+    "tests": [
+      { "name": "Airflow against speed", "tools": "OmaCar data recording",
+        "steps": ["Record mass air flow at idle, at 2,000 rpm and at 3,000 rpm, no load."],
+        "expect": "Roughly linear with engine speed. A reading that flattens out is a dirty or failing sensor." }
+    ],
+    "clearing": "Clear after cleaning and re-check the trims rather than waiting for the light."
+  },
+
+  "P0141": {
+    "title": "O2 Sensor Heater Circuit Malfunction (Bank 1, Sensor 2)",
+    "system": "Emissions",
+    "severity": "normal",
+    "emissions": true,
+    "drivable": "Yes.",
+    "meaning": "The same fault as P0135, but on the sensor after the catalytic converter. The rear sensor does not control fuelling; it grades the converter. So this affects the emissions monitors rather than how the car runs.",
+    "symptoms": ["Check engine light", "Catalyst monitor never completes", "No change in drivability"],
+    "causes": [
+      { "what": "Rear oxygen sensor heater failed open", "share": 68, "part": "36532-RTW-A01", "hours": 0.6 },
+      { "what": "Connector corrosion — it sits under the car", "share": 17, "hours": 0.4 },
+      { "what": "Blown heater fuse", "share": 9, "hours": 0.3 },
+      { "what": "Harness damage from road debris", "share": 6, "hours": 1.0 }
+    ],
+    "smart": [
+      { "pid": "MODE06:0x3D", "label": "O2 heater resistance, B1S2", "expect": "1.0 – 10.0 Ω",
+        "why": "The measurement behind the code." }
+    ],
+    "tests": [
+      { "name": "Measure the heater element", "tools": "Digital multimeter",
+        "steps": ["Unplug the rear sensor cold.", "Measure across the two heater wires."],
+        "expect": "1.0 – 10.0 Ω. Open circuit condemns the sensor." }
+    ],
+    "clearing": "Resets the catalyst monitor, which then needs a full drive cycle."
+  },
+
+  "P0131": {
+    "title": "O2 Sensor Circuit Low Voltage (Bank 1, Sensor 1)",
+    "system": "Fuel & air metering",
+    "severity": "warning",
+    "emissions": true,
+    "drivable": "Yes, with poor economy.",
+    "meaning": "The front oxygen sensor's signal sat at the bottom of its range — a permanently lean indication. Either the mixture really is lean, or the sensor cannot swing.",
+    "symptoms": ["Poor economy", "Hesitation", "Check engine light"],
+    "causes": [
+      { "what": "Failed or contaminated sensor", "share": 39, "part": "36531-RTW-A01", "hours": 0.6 },
+      { "what": "Exhaust leak ahead of the sensor", "share": 27,
+        "note": "Air drawn in through a leak reads as lean and the sensor is telling the truth.", "hours": 1.0 },
+      { "what": "Genuine lean condition — vacuum leak or fuel supply", "share": 24,
+        "note": "If fuel trim is strongly positive, believe the sensor and go looking for the leak.", "hours": 1.0 },
+      { "what": "Signal wire shorted to ground", "share": 10, "hours": 1.0 }
+    ],
+    "smart": [
+      { "pid": "LONG_FUEL_TRIM_1", "label": "Long fuel trim", "expect": "-10 – +10 %",
+        "why": "The single most important number here. Strongly positive means the lean condition is real; near zero means the sensor is lying." },
+      { "pid": "MAF", "label": "Mass air flow", "expect": "2 – 7 g/s at idle",
+        "why": "Corroborates or rules out a metering fault as the source of the lean reading." }
+    ],
+    "tests": [
+      { "name": "Force it rich", "tools": "Propane, or a controlled vacuum leak",
+        "steps": ["Introduce a small amount of propane at the intake while watching the sensor voltage."],
+        "expect": "The signal should climb above 0.8 V promptly. A sensor that will not swing rich is finished." }
+    ],
+    "clearing": "Fix the cause; the trims tell you whether you were right long before the light does."
+  }
+}

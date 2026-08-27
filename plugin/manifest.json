@@ -2,16 +2,20 @@
   "schemaVersion": 1,
   "id": "omacar",
   "name": "OmaCar",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "author": "prezziej",
   "license": "MIT",
-  "description": "Live OBD-II diagnostics for your car",
-  "kinds": ["bar-widget"],
-  "entryPoints": { "barWidget": "Panel.qml" },
+  "description": "The car in the menu bar: a steering wheel that fills in when the engine is turning, and a panel with what it is doing now, how it has driven by day, week, month and year, every trouble code it is holding, and the whole service book.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
   "barWidget": {
     "displayName": "OmaCar",
-    "description": "Live OBD-II diagnostics for your car",
-    "category": "Utility",
+    "description": "Live OBD-II readings, performance history, faults and the service schedule. Click for the panel, right-click for the cluster.",
+    "category": "Hardware",
     "defaultSection": "right",
     "allowMultiple": false
   }

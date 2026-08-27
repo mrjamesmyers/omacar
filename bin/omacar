@@ -12,6 +12,20 @@
 #   omacar profile [list]     car profiles OmaCar has learned
 #   omacar daemon start|stop|status
 #                             the polling daemon that feeds the cluster
+#   omacar sim seed|start|stop|status
+#                             a simulated 2015 CR-Z — history, faults, service
+#   omacar prune [--keep=N]   roll old samples into daily figures, reclaim disk
+#   omacar hotplug [install]  start the daemon when the adapter is plugged in
+#   omacar kiosk              fullscreen drive mode, for a tablet in the car
+#   omacar cockpit [--control]
+#                             serve the gauge to any tablet on the network
+#   omacar tablet [setup]     set this machine up as the in-car tablet
+#   omacar status             is anything watching the car, and what does it know
+#   omacar watch [list]       the watchdog — notifies you when something changes
+#   omacar scan               full system scan, every module, as a report
+#   omacar ai [triage|owner|predict|code P0135|ask "..."]
+#                             the diagnostic advisor — reads this car's own
+#                             numbers and tells you what is actually wrong
 #   omacar state              key=value status for the bar widget
 #   omacar server status|stop the loopback server the app is served from
 #   omacar help               this text
@@ -148,6 +162,262 @@ daemon_status() {
   if pid=$(daemon_pid); then echo "running (pid $pid)"; else echo "not running"; fi
 }
 
+# --- the simulator ----------------------------------------------------------
+
+# A whole car in software: a year of driving, the codes it has thrown and the
+# service book, written into the very files the daemon writes. It never opens
+# a serial port, so it cannot fight the real daemon for one — but they do
+# share live.json, so only one of the two may run at a time.
+
+SIM_PID="$OMACAR_STATE/sim.pid"
+
+sim_pid() {
+  [[ -f "$SIM_PID" ]] || return 1
+  local pid; pid=$(cat "$SIM_PID" 2>/dev/null)
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && echo "$pid"
+}
+
+sim_start() {
+  if sim_pid >/dev/null; then echo "sim already running (pid $(sim_pid))"; return; fi
+  if daemon_pid >/dev/null; then
+    echo "omacar: the real daemon is running — stop it first (omacar daemon stop)" >&2
+    exit 1
+  fi
+  [[ -f "$OMACAR_STATE/telemetry.db" ]] || python3 "$ROOT/lib/sim.py" seed
+  setsid -f python3 "$ROOT/lib/sim.py" run >"$OMACAR_STATE/sim.log" 2>&1
+  local i
+  for i in $(seq 1 40); do
+    sleep 0.2
+    sim_pid >/dev/null && { echo "sim running (pid $(sim_pid)) — simulated 2015 Honda CR-Z"; return; }
+  done
+  echo "omacar: sim did not start — see $OMACAR_STATE/sim.log" >&2
+  tail -3 "$OMACAR_STATE/sim.log" >&2 2>/dev/null || true
+  exit 1
+}
+
+sim_stop() {
+  local pid; pid=$(sim_pid) || { echo "sim not running"; return; }
+  kill "$pid" 2>/dev/null || true
+  rm -f "$SIM_PID"
+  echo "sim stopped"
+}
+
+sim_status() {
+  local pid
+  if pid=$(sim_pid); then echo "running (pid $pid) — SIMULATED car, not a real one"
+  else echo "not running"; fi
+}
+
+# --- kiosk ------------------------------------------------------------------
+
+# A tablet bolted to a dashboard, showing drive mode and nothing else.
+#
+# Its own Chromium profile, so it cannot restore yesterday's tabs over the
+# gauge and cannot disturb the browser you actually use. Idle is inhibited
+# through Omarchy's own switch rather than by fighting the compositor, and it
+# is put back exactly as it was on the way out — a kiosk that leaves your
+# laptop unable to lock is a bug you find a week later.
+
+KIOSK_PROFILE="${XDG_DATA_HOME:-$HOME/.local/share}/omacar/kiosk-profile"
+KIOSK_IDLE_MARK="$OMACAR_STATE/kiosk-idle-was"
+
+kiosk_idle_hold() {
+  # Remember whether stay-awake was already on before we touch it.
+  local state_file="$HOME/.local/state/omarchy/indicators/stay-awake"
+  if [[ -f "$state_file" ]]; then echo already >"$KIOSK_IDLE_MARK"
+  else echo ours >"$KIOSK_IDLE_MARK"; omarchy-toggle-idle stay-awake >/dev/null 2>&1 || true
+  fi
+}
+
+kiosk_idle_release() {
+  [[ -f "$KIOSK_IDLE_MARK" ]] || return 0
+  if [[ "$(cat "$KIOSK_IDLE_MARK")" == "ours" ]]; then
+    omarchy-toggle-idle allow-idle >/dev/null 2>&1 || true
+  fi
+  rm -f "$KIOSK_IDLE_MARK"
+}
+
+kiosk() {
+  local view="${1:-drive}"
+  local base; base="$(app_base)"
+  case "$base" in
+    file://*) echo "omacar: the loopback server did not start; kiosk needs it" >&2; exit 1 ;;
+  esac
+  command -v chromium >/dev/null || {
+    echo "omacar: chromium is not installed" >&2; exit 1; }
+
+  mkdir -p "$KIOSK_PROFILE"
+  kiosk_idle_hold
+  trap kiosk_idle_release EXIT INT TERM
+
+  # --app puts it in an undecorated window and --kiosk makes that window the
+  # whole screen. Note Chromium derives the Wayland app_id from the URL and
+  # profile rather than honouring --class, so a Hyprland rule has to match
+  # what it actually sets: chrome-127.0.0.1__app.html-Default
+  chromium \
+    --user-data-dir="$KIOSK_PROFILE" \
+    --app="${base}#${view}" \
+    --kiosk \
+    --start-fullscreen \
+    --noerrdialogs \
+    --disable-infobars \
+    --disable-session-crashed-bubble \
+    --disable-features=TranslateUI,Translate \
+    --no-first-run \
+    --password-store=basic \
+    --autoplay-policy=no-user-gesture-required \
+    --ozone-platform=wayland \
+    >/dev/null 2>&1
+}
+
+# --- the in-car tablet ------------------------------------------------------
+
+# Everything a dashboard tablet needs, in one command, because the alternative
+# is four commands you have to remember while sitting in a car park.
+#
+# Deliberately explicit about what it turns on. This is the one command here
+# that changes how the machine behaves at login, and a tool that quietly makes
+# your laptop boot into a fullscreen speedometer has done something rude.
+
+tablet_status() {
+  local k w
+  # systemctl exits non-zero for "disabled", which is an answer, not a failure.
+  k=$(systemctl --user is-enabled omacar-kiosk.service 2>/dev/null); k=${k:-missing}
+  w=$(systemctl --user is-enabled omacar-watch.service 2>/dev/null); w=${w:-missing}
+  echo
+  printf "  %-22s %s\n" "kiosk at login" "$k"
+  printf "  %-22s %s\n" "watchdog at login" "$w"
+  printf "  %-22s %s\n" "adapter hotplug" \
+    "$([[ -f /etc/udev/rules.d/99-omacar.rules ]] && echo installed || echo "not installed")"
+  printf "  %-22s %s\n" "auto drive mode" \
+    "$(python3 -c "import sys;sys.path.insert(0,'$ROOT/lib');import api;l=api.drive_layout();print(l['auto'])" 2>/dev/null || echo unknown)"
+  echo
+}
+
+tablet_setup() {
+  echo
+  echo "  Setting this machine up as an in-car tablet. It will, from now on:"
+  echo "    · start the watchdog at login"
+  echo "    · open fullscreen drive mode at login"
+  echo "    · start the daemon when the adapter is plugged in"
+  echo "    · switch to drive mode by itself when the car connects"
+  echo
+  read -r -p "  Do that? [y/N] " reply
+  [[ "$reply" =~ ^[Yy]$ ]] || { echo "  nothing changed"; return 0; }
+  echo
+
+  systemctl --user enable --now omacar-watch.service 2>&1 | sed 's/^/  /'
+  systemctl --user enable omacar-kiosk.service 2>&1 | sed 's/^/  /'
+  python3 -c "
+import sys; sys.path.insert(0, '$ROOT/lib')
+import api; api.save_drive_layout({'auto': 'connect', 'auto_return': True})
+print('  auto drive mode: on connect')
+"
+  echo
+  echo "  The udev rule needs one sudo. Skip it and the watchdog will still"
+  echo "  notice the adapter, a second or two later."
+  python3 "$ROOT/lib/hotplug.py" install || true
+  echo
+  echo "  Done. Reboot, or: systemctl --user start omacar-kiosk"
+  echo "  To undo: omacar tablet off"
+  echo
+}
+
+tablet_off() {
+  systemctl --user disable --now omacar-kiosk.service 2>&1 | sed 's/^/  /'
+  echo "  kiosk will no longer start at login (the watchdog is left alone)"
+}
+
+# --- cockpit ----------------------------------------------------------------
+
+# The answer to "can I use a cheap tablet". Almost certainly not to RUN
+# Omarchy — those are ARM Android devices with locked bootloaders — but every
+# one of them has a browser, and this is a web app. So: leave the brain in the
+# car on something that has no battery to cook, and let the tablet be a screen.
+#
+# Read-only unless told otherwise, and token-gated always. See lib/serve.py for
+# why both, and for what the token is and is not.
+
+COCKPIT_TOKEN_FILE="$OMACAR_STATE/cockpit-token"
+COCKPIT_PORT=7570
+
+cockpit_token() {
+  if [[ ! -s "$COCKPIT_TOKEN_FILE" ]]; then
+    mkdir -p "$OMACAR_STATE"
+    ( umask 077; head -c 18 /dev/urandom | base64 | tr -d '=+/' | cut -c1-22 \
+        >"$COCKPIT_TOKEN_FILE" )
+  fi
+  cat "$COCKPIT_TOKEN_FILE"
+}
+
+cockpit_ip() {
+  ip -4 route get 1.1.1.1 2>/dev/null | grep -oP 'src \K[0-9.]+' | head -1
+}
+
+cockpit() {
+  local control="" view="drive"
+  for a in "$@"; do
+    case "$a" in
+      --control) control="--control" ;;
+      --view=*) view="${a#--view=}" ;;
+    esac
+  done
+  local token addr url
+  token=$(cockpit_token)
+  addr=$(cockpit_ip)
+  [[ -n "$addr" ]] || { echo "omacar: no network address to serve on" >&2; exit 1; }
+  url="http://$addr:$COCKPIT_PORT/app.html?k=$token#$view"
+
+  echo
+  echo "  Point any tablet, phone or laptop on this network at:"
+  echo
+  echo "    $url"
+  echo
+  command -v qrencode >/dev/null && qrencode -t ANSIUTF8 -m 2 "$url"
+  if [[ -n "$control" ]]; then
+    echo "  CONTROL ENABLED — this display can clear codes and command the car."
+  else
+    echo "  Read-only. Pass --control to let the display command the car."
+  fi
+  echo "  Token is in $COCKPIT_TOKEN_FILE; delete it to issue a new one."
+  echo "  Ctrl-C to stop serving."
+  echo
+  exec python3 "$ROOT/lib/serve.py" "$COCKPIT_PORT" "$ROOT/share" \
+    --host 0.0.0.0 --token "$token" $control
+}
+
+# --- the watchdog -----------------------------------------------------------
+
+# The part that earns leaving an adapter in the car. Reads the same live.json
+# everything else reads and raises an Omarchy notification when a rule fires.
+
+WATCH_PID="$OMACAR_STATE/watch.pid"
+
+watch_pid() {
+  [[ -f "$WATCH_PID" ]] || return 1
+  local pid; pid=$(cat "$WATCH_PID" 2>/dev/null)
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && echo "$pid"
+}
+
+watch_start() {
+  if watch_pid >/dev/null; then echo "watchdog already running (pid $(watch_pid))"; return; fi
+  setsid -f python3 "$ROOT/lib/watch.py" >"$OMACAR_STATE/watch.log" 2>&1
+  local i
+  for i in $(seq 1 30); do
+    sleep 0.2
+    watch_pid >/dev/null && { echo "watchdog running (pid $(watch_pid))"; return; }
+  done
+  echo "omacar: watchdog did not start — see $OMACAR_STATE/watch.log" >&2
+  exit 1
+}
+
+watch_stop() {
+  local pid; pid=$(watch_pid) || { echo "watchdog not running"; return; }
+  kill "$pid" 2>/dev/null || true
+  rm -f "$WATCH_PID"
+  echo "watchdog stopped"
+}
+
 # --- bar widget contract ----------------------------------------------------
 
 # Cheap and non-blocking: reads the cache doctor/live leave behind. Opening a
@@ -202,6 +472,63 @@ for n in names:
       start) daemon_start ;;
       stop) daemon_stop ;;
       *) daemon_status ;;
+    esac ;;
+  sim)
+    case "${2:-status}" in
+      seed) python3 "$ROOT/lib/sim.py" seed ;;
+      start) sim_start ;;
+      stop) sim_stop ;;
+      *) sim_status ;;
+    esac ;;
+  status) exec python3 "$ROOT/lib/status.py" ;;
+  prune) shift; exec python3 "$ROOT/lib/prune.py" "$@" ;;
+  hotplug) shift; exec python3 "$ROOT/lib/hotplug.py" "$@" ;;
+  kiosk) shift; kiosk "$@" ;;
+  cockpit) shift; cockpit "$@" ;;
+  tablet)
+    case "${2:-status}" in
+      setup) tablet_setup ;;
+      off) tablet_off ;;
+      *) tablet_status ;;
+    esac ;;
+  scan)
+    python3 -c "
+import sys, json; sys.path.insert(0, '$ROOT/lib')
+import api, records
+r = api.scan(); u = records.units_for()
+d = lambda km: '%s %s' % (format(km * u['km'], ',.0f'), u['dist']) if km else '—'
+print()
+print('  %s   %s   %s' % (r['vehicle'], r['vin'] or '', d(r['odometer'])))
+t = r['totals']
+print('  %d code(s) in %d of %d modules' % (t['codes'], t['with_codes'], t['modules']))
+print()
+for m in r['modules']:
+    mark = '  ok  ' if not m['active'] else ('  !!  ' if m['worst'] == 'critical' else '  !   ')
+    print('%s%-26s %-11s %s' % (mark, m['name'], m['system'],
+          '' if m['generic'] else '(OEM protocol)'))
+    for c in m['codes']:
+        if c['active']:
+            print('        %-7s %-9s %s' % (c['code'], c['status'], c['descr']))
+print()
+print('  readiness   %s' % ('ready' if r['readiness']['ready']
+      else '%d monitor(s) incomplete' % r['readiness']['incomplete']))
+if r['mode06_failed']:
+    print('  mode 06     %d test(s) past the limit: %s'
+          % (len(r['mode06_failed']), ' '.join(r['mode06_failed'])))
+if r['service_next']:
+    s2 = r['service_next']
+    print('  next due    %s  %d%%' % (s2['item'], max(0, s2['life'])))
+print('  filed as    record #%d' % r['record_id'])
+print()
+" ;;
+  ai) shift; exec python3 "$ROOT/lib/ai.py" "$@" ;;
+  watch)
+    case "${2:-status}" in
+      start) watch_start ;;
+      stop) watch_stop ;;
+      list) exec python3 "$ROOT/lib/watch.py" list ;;
+      run) shift 2 || true; exec python3 "$ROOT/lib/watch.py" "$@" ;;
+      *) if p=$(watch_pid); then echo "running (pid $p)"; else echo "not running"; fi ;;
     esac ;;
   state) state ;;
   server) case "${2:-status}" in stop) server_stop ;; *) server_status ;; esac ;;
