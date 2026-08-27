@@ -205,6 +205,17 @@ function noteManualNav(fromId, toId) {
   if (toId === "drive") overridden = false;
 }
 
+// Arriving with a view already named in the URL is somebody asking for that
+// view — a bookmark, a link from the dock card, a deep link out of another
+// screen. Auto-drive is for the case where no view was asked for; it must not
+// override one that was.
+function honourInitialView() {
+  const asked = (location.hash || "").slice(1).split("/")[0];
+  if (asked && asked !== "drive" && VIEWS.some((v) => v.id === asked)) {
+    overridden = true;
+  }
+}
+
 export async function loadAuto() {
   try {
     const l = await api.driveLayout();
@@ -262,6 +273,7 @@ async function boot() {
   // live samples, so it has to be able to trigger the switch too.
   store.on("car", autoDrive);
 
+  honourInitialView();
   await Promise.all([store.boot(), applyTheme(), loadAuto()]);
   document.getElementById("btn-units").textContent = U.units.dist;
   document.getElementById("app").dataset.booting = "0";

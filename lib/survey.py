@@ -471,7 +471,13 @@ def set_aside():
     `omacar sim seed` builds a fresh simulated one whenever it is wanted, so
     nothing here is destructive.
     """
-    aside = os.path.join(records.STATE, "telemetry-simulated.db")
+    # Beside the database, not in the state directory. Those are usually the
+    # same place, and when they are not, os.replace across two filesystems
+    # fails with EXDEV and this quietly did nothing at all — which is the worst
+    # possible outcome, because the caller then writes a real car into a
+    # simulated record believing it was moved.
+    aside = os.path.join(os.path.dirname(os.path.abspath(records.DB)),
+                         "telemetry-simulated.db")
     try:
         if os.path.exists(aside):
             os.remove(aside)
@@ -486,21 +492,33 @@ def set_aside():
     return aside
 
 
+def prepare(verbose=False):
+    """Set a simulated record aside, if there is one. Call this BEFORE opening
+    a connection to the database — never during.
+
+    Renaming the file out from under a handle that is already open does not
+    fail loudly; SQLite follows the inode and then refuses the next write with
+    "attempt to write a readonly database", which is a mystifying way to be
+    told you moved the file. The daemon opens its sample connection at startup
+    and keeps it for the life of the process, so this has to happen first and
+    exactly once.
+    """
+    if stored_source() != "simulated":
+        return None
+    aside = set_aside()
+    if aside:
+        print(f"  a simulated car was in the record; kept it as "
+              f"{os.path.basename(aside)} and started fresh for this vehicle",
+              flush=True)
+    return aside
+
+
 def survey(conn, obd=None, verbose=False):
     """One full slow pass. Returns a small summary; never raises at the caller."""
     if obd is None:
         import obd as obd_mod
         obd = obd_mod
     now = time.time()
-
-    # A real adapter must never write into the simulator's record.
-    if stored_source() == "simulated":
-        aside = set_aside()
-        if verbose or aside:
-            print(f"  a simulated car was in the record; kept it as "
-                  f"{os.path.basename(aside or 'telemetry-simulated.db')} and "
-                  f"started fresh for this vehicle")
-
     db = open_db()
     out = {"codes": 0, "monitors": 0, "tests": 0, "identity": {}}
     try:
@@ -532,6 +550,7 @@ def main():
         print(f"omacar survey: not connected ({conn.status()})", file=sys.stderr)
         return 1
     print(f"  surveying {port} ({kind}) over {conn.protocol_name()}")
+    prepare()
     survey(conn, obd, verbose=True)
     conn.close()
     return 0

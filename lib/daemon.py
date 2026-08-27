@@ -69,6 +69,13 @@ def main():
                                 ("mid", telemetry.MID),
                                 ("slow", telemetry.SLOW))}
 
+    # Before anything opens the database: if the record in it belongs to the
+    # simulator, move it aside. Doing this later — with the sample connection
+    # already open — renames the file under a live handle, and the next write
+    # fails with "attempt to write a readonly database", which is a memorable
+    # way to spend an evening.
+    survey.prepare()
+
     db = open_db()
     sample, tick, last_row = {}, 0, 0.0
     started = time.time()

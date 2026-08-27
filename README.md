@@ -135,6 +135,12 @@ Daily figures no longer need a compaction to have run: `records.days()` merges
 the stored rollups with a live rollup of recent raw samples, so a car driven
 for the first time this morning has a year view that includes this morning.
 
+The daemon runs `survey.prepare()` before it opens anything, and that ordering
+is load-bearing: renaming a database out from under an already-open handle does
+not fail loudly — SQLite follows the inode and then refuses the next write with
+"attempt to write a readonly database", which is a memorable way to spend an
+evening.
+
 A real adapter never writes into the simulator's record. If a survey finds a
 simulated car in the database it moves the whole thing aside as
 `telemetry-simulated.db` and starts clean, because half a fictional CR-Z next

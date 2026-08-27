@@ -425,6 +425,55 @@ ok("a missing theme falls back rather than failing",
    theme_mod.palette("/nonexistent/colors.toml")["mode"] == "dark")
 
 
+# ---- the survey's ordering contract -----------------------------------------
+head("Survey")
+
+import survey  # noqa: E402
+
+stmp = tempfile.mkdtemp()
+survey_real = records.DB
+records.DB = survey.records.DB = os.path.join(stmp, "s.db")
+sdb = sqlite3.connect(records.DB)
+sdb.execute("CREATE TABLE vehicle (k TEXT PRIMARY KEY, v TEXT)")
+sdb.execute("CREATE TABLE samples (t REAL PRIMARY KEY, speed REAL, maf REAL)")
+sdb.execute("INSERT INTO vehicle VALUES ('simulated', 'true')")
+sdb.commit()
+sdb.close()
+
+ok("a simulated record is recognised", survey.stored_source() == "simulated")
+aside = survey.prepare()
+ok("...and set aside rather than written into", aside and os.path.exists(aside))
+ok("a fresh database takes its place", not os.path.exists(records.DB))
+ok("preparing again is a no-op", survey.prepare() is None)
+
+# The bug this ordering exists to prevent: renaming the file under an already
+# open handle does not fail loudly — SQLite follows the inode and then refuses
+# the next write with "attempt to write a readonly database".
+sdb = sqlite3.connect(records.DB)
+sdb.execute("CREATE TABLE IF NOT EXISTS vehicle (k TEXT PRIMARY KEY, v TEXT)")
+sdb.execute("INSERT OR REPLACE INTO vehicle VALUES ('simulated', 'false')")
+sdb.commit()
+sdb.close()
+ok("a real record is left exactly where it is", survey.prepare() is None)
+ok("and is still there afterwards", os.path.exists(records.DB))
+
+records.DB = survey.records.DB = survey_real
+shutil.rmtree(stmp, ignore_errors=True)
+
+# VIN decoding, which is the only way this tool knows what car it is in.
+ok("the manufacturer comes from the first three characters",
+   survey.decode_vin("JHMZF1D64FS004917").get("make") == "Honda")
+ok("the year comes from the tenth",
+   survey.decode_vin("JHMZF1D64FS004917").get("year") == 2015)
+ok("a valid North American check digit is confirmed",
+   survey.decode_vin("1HGCM82633A004352").get("vin_valid") is True)
+ok("a broken one is reported rather than trusted",
+   survey.decode_vin("1HGCM82634A004352").get("vin_valid") is False)
+ok("a VIN too short to read gives nothing", survey.decode_vin("ABC") == {})
+ok("the model is never guessed",
+   "model" not in survey.decode_vin("JHMZF1D64FS004917"))
+
+
 # ---- the vehicle book -------------------------------------------------------
 head("Odometer and service book")
 
