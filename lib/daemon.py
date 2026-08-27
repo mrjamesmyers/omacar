@@ -15,6 +15,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import connect  # noqa: E402
+import survey  # noqa: E402
 import telemetry  # noqa: E402
 
 LIVE = os.path.join(connect.STATE, "live.json")
@@ -72,6 +73,24 @@ def main():
     sample, tick, last_row = {}, 0, 0.0
     started = time.time()
 
+    # The slow half of the car: codes, readiness, on-board tests, the VIN.
+    # None of it changes at gauge rate and all of it costs bus time the gauge
+    # would rather have, so it runs once on connect and then rarely. Without
+    # it a real adapter feeds the sample stream and nothing else, and the
+    # whole diagnostic side of the app has nothing to show.
+    last_survey = 0.0
+
+    def slow_pass():
+        nonlocal last_survey
+        last_survey = time.time()
+        try:
+            survey.survey(conn, obd)
+        except Exception as e:                            # noqa: BLE001
+            # A survey that fails must never take the gauge down with it.
+            print(f"survey failed: {e}", file=sys.stderr, flush=True)
+
+    slow_pass()
+
     try:
         while True:
             names = list(cmds["fast"])
@@ -108,6 +127,9 @@ def main():
                      lphk, eff))
                 db.commit()
                 last_row = now
+
+            if now - last_survey >= survey.EVERY:
+                slow_pass()
 
             tick += 1
             time.sleep(1.0 / FAST_HZ)

@@ -14,6 +14,7 @@
 #                             the polling daemon that feeds the cluster
 #   omacar sim seed|start|stop|status
 #                             a simulated 2015 CR-Z — history, faults, service
+#   omacar survey             read codes, readiness and on-board tests from the car
 #   omacar prune [--keep=N]   roll old samples into daily figures, reclaim disk
 #   omacar hotplug [install]  start the daemon when the adapter is plugged in
 #   omacar kiosk              fullscreen drive mode, for a tablet in the car
@@ -483,6 +484,7 @@ for n in names:
       *) sim_status ;;
     esac ;;
   status) exec python3 "$ROOT/lib/status.py" ;;
+  survey) omacar_need_env; exec "$OMACAR_PY" "$ROOT/lib/survey.py" ;;
   prune) shift; exec python3 "$ROOT/lib/prune.py" "$@" ;;
   hotplug) shift; exec python3 "$ROOT/lib/hotplug.py" "$@" ;;
   kiosk) shift; kiosk "$@" ;;

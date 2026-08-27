@@ -118,12 +118,40 @@ def rows(db, sql, args=(), table=None):
         return []
 
 
+# How old the last published sample may be before it stops counting as live.
+# The daemon publishes five times a second and the simulator matches it, so
+# anything past a few seconds means whoever was writing has stopped.
+LIVE_STALE = 15
+
+
 def live():
+    """The current sample — or an honest nothing when it has gone stale.
+
+    A file on disk does not know that the process writing it has died. Without
+    this check the app happily shows last Tuesday's road speed as the current
+    one, which on a dashboard is not a cosmetic problem: the whole contract of
+    that screen is that the number is true right now.
+    """
     try:
         with open(LIVE, encoding="utf-8") as f:
-            return json.load(f)
+            snap = json.load(f)
     except (OSError, ValueError):
         return {"connected": False, "status": "no daemon"}
+    age = time.time() - (snap.get("t") or 0)
+    if snap.get("connected") and age > LIVE_STALE:
+        return {
+            "connected": False,
+            "status": "no daemon",
+            "stale_for": int(age),
+            # The port and protocol are still the last thing that answered,
+            # which is worth showing on a connection screen. Everything that
+            # moves is dropped rather than frozen.
+            "port": snap.get("port"),
+            "kind": snap.get("kind"),
+            "protocol": snap.get("protocol"),
+            "values": {},
+        }
+    return snap
 
 
 def status(snap):
@@ -292,8 +320,76 @@ def service(db, odometer):
 
 # ---- how it has been driven -------------------------------------------------
 
-def days(db):
-    return rows(db, "SELECT * FROM days ORDER BY day ASC", table="days")
+def days(db, live_window=60):
+    """Daily figures — the stored rollups, plus today and any recent day the
+    compactor has not reached yet, computed from the raw samples on the fly.
+
+    Without this the whole year view is empty until something has run a
+    compaction, which on a car driven for the first time this morning means
+    the app has nothing to show about a drive that just happened. The stored
+    row always wins where one exists; this only fills the gap at the live end.
+    """
+    stored = rows(db, "SELECT * FROM days ORDER BY day ASC", table="days")
+    have = {d["day"] for d in stored}
+    fresh = live_days(db, since=time.time() - live_window * 86400)
+    merged = stored + [d for d in fresh if d["day"] not in have]
+    merged.sort(key=lambda d: d["day"])
+    return merged
+
+
+def live_days(db, since):
+    """Roll raw samples into daily figures, with the same maths as everywhere
+    else — speed integrated, fuel from mass air flow, and never across a gap."""
+    if db is None:
+        return []
+    try:
+        raw = db.execute(
+            "SELECT t, speed, maf FROM samples WHERE t >= ? ORDER BY t ASC",
+            (since,)).fetchall()
+    except sqlite3.Error:
+        return []
+    if not raw:
+        return []
+
+    acc, prev_t = {}, None
+    for r in raw:
+        t, speed, maf = r["t"], r["speed"], r["maf"]
+        dt = 1.0 if prev_t is None else t - prev_t
+        gap = dt > 10
+        if gap:
+            dt = 1.0
+        key = datetime.fromtimestamp(t).strftime("%Y-%m-%d")
+        d = acc.setdefault(key, {"km": 0.0, "litres": 0.0, "moving_s": 0.0,
+                                 "engine_s": 0.0, "idle_s": 0.0,
+                                 "top_kph": 0.0, "trips": 0, "open": True})
+        if gap:
+            d["open"] = True
+        if speed and speed > MOVING_KPH:
+            if d["open"]:
+                d["trips"] += 1
+                d["open"] = False
+            d["km"] += speed * dt / 3600.0
+            d["moving_s"] += dt
+            d["top_kph"] = max(d["top_kph"], speed)
+        else:
+            d["idle_s"] += dt
+        d["engine_s"] += dt
+        if maf and maf > 0:
+            d["litres"] += (maf / AFR_GASOLINE) * dt / FUEL_DENSITY_G_PER_L
+        prev_t = t
+
+    out = []
+    for day, d in sorted(acc.items()):
+        out.append({
+            "day": day, "km": round(d["km"], 2),
+            "litres": round(d["litres"], 3),
+            "lphk": (round(d["litres"] / d["km"] * 100.0, 2)
+                     if d["km"] > 0.5 and d["litres"] > 0 else None),
+            "moving_s": int(d["moving_s"]), "engine_s": int(d["engine_s"]),
+            "idle_s": int(d["idle_s"]), "top_kph": round(d["top_kph"], 1),
+            "trips": d["trips"], "cost": None, "odo": None,
+        })
+    return out
 
 
 def window_of(series, first_day=None, n=None):
@@ -477,14 +573,15 @@ def snapshot(include_samples=False):
     v = vehicle(db)
     series = days(db)
     perf = performance(series)
-    odo = (snap.get("odometer_km") or (perf or {}).get("odometer")
-           or v.get("odometer_km"))
+    odo = ((snap.get("odometer_km") if snap.get("connected") else None)
+           or (perf or {}).get("odometer") or v.get("odometer_km"))
     f = faults(db)
     out = {
         "checked": int(time.time()),
         "units": units_for(),
         "connected": bool(snap.get("connected")),
-        "simulated": bool(snap.get("simulated") or v.get("simulated")),
+        "simulated": bool((snap.get("simulated") if snap.get("connected") else False)
+                          or v.get("simulated")),
         "status": status(snap),
         "stale": (max(0, int(time.time() - snap["t"])) if snap.get("t") else None),
         "vehicle": v,

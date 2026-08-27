@@ -228,6 +228,11 @@ class Watch:
         self.armed = self.state.get("armed", {})
         self.since = {}
         self.known_codes = set(self.state.get("codes", []))
+        # Which car those codes belong to. Swapping vehicles — or switching
+        # between the simulator and a real adapter — replaces the whole fault
+        # list at once, and announcing that as "five codes cleared" is a lie
+        # about a repair that never happened.
+        self.known_vin = self.state.get("vin")
         self.last_connected = None
         self.trip = None
         # Compaction is a housekeeping job, not a rule. It lives here because
@@ -323,8 +328,16 @@ class Watch:
             return
         try:
             active = {f["code"]: f for f in records.faults(db) if f["active"]}
+            vin = (records.vehicle(db) or {}).get("vin")
         finally:
             db.close()
+
+        if vin != self.known_vin:
+            # A different car. Adopt its codes without comment; the previous
+            # car's list is not news about this one.
+            self.known_vin = vin
+            self.known_codes = set(active)
+            return
         fresh = [c for c in active if c not in self.known_codes]
         gone = [c for c in self.known_codes if c not in active]
         if not self.known_codes and active:
@@ -424,7 +437,8 @@ class Watch:
 
     def persist(self):
         save_state({"armed": self.armed, "codes": sorted(self.known_codes),
-                    "compacted": self.last_compact, "at": int(time.time())})
+                    "vin": self.known_vin, "compacted": self.last_compact,
+                    "at": int(time.time())})
 
 
 def run(quiet=False):

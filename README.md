@@ -80,6 +80,48 @@ against. Every OBD-II car has had it since 1996 and almost no consumer tool
 shows it, which is a waste, because a catalyst test passing at 95% of its limit
 is a failure with a date on it.
 
+## When the adapter arrives
+
+Everything above works against a real car, not only the simulator. The daemon
+runs a slow pass on connect and every few minutes — separate from the gauge,
+because none of it changes at gauge rate and all of it costs bus time:
+
+    omacar survey     read it once by hand
+
+  Mode 03 / 07      stored and pending trouble codes, merged into what was
+                    already known so a code keeps its first-seen date and
+                    gains a count, and one that has gone is marked cleared
+                    rather than deleted — the history of what a car has done
+                    is most of what makes the next fault diagnosable
+  Mode 02           the freeze frame, attached to the code it belongs to
+  Mode 01 PID 01    MIL state and every readiness monitor
+  Mode 06           the on-board test results
+  Mode 09           VIN and calibration
+
+OBD-II will not tell you what car it is in. It reports a VIN and nothing else,
+so a tool that shows a make and a year either asked a paid database or worked
+it out: `lib/survey.py` reads the manufacturer from the VIN's first three
+characters and the year from its tenth, both of which are in the standard and
+free, and validates the North American check digit rather than trusting a
+misread. The model is genuinely not derivable without a licensed database, so
+it is left for you to fill in rather than guessed at.
+
+Daily figures no longer need a compaction to have run: `records.days()` merges
+the stored rollups with a live rollup of recent raw samples, so a car driven
+for the first time this morning has a year view that includes this morning.
+
+A real adapter never writes into the simulator's record. If a survey finds a
+simulated car in the database it moves the whole thing aside as
+`telemetry-simulated.db` and starts clean, because half a fictional CR-Z next
+to half a real car is worse than either — it would show somebody trouble codes
+their vehicle has never set. `omacar sim seed` builds a fresh one whenever it
+is wanted, so nothing is lost.
+
+And a sample nobody is publishing any more stops counting as live after
+fifteen seconds. A file on disk does not know the process writing it has died,
+and without that check the app shows last Tuesday's road speed as the current
+one — which on a dashboard is not a cosmetic problem.
+
 ## The advisor
 
     omacar ai                    everything at once, cheapest certain work first

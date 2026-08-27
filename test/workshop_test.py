@@ -301,6 +301,40 @@ got, _ = run_watch([sample(SPEED=4)] * 3 + [sample(SPEED=0, RPM=0)] * 120)
 ok("a shuffle in the car park is not a trip",
    not any(a["title"] == "Trip finished" for a in got))
 
+# Swapping cars — or switching between the simulator and a real adapter —
+# replaces the fault list wholesale. Announcing that as a repair is a lie.
+wv = watch.Watch(quiet=True, persist=False, watch_faults=False, sink=[])
+wv.known_vin, wv.known_codes = "VIN-A", {"P0135", "P1449"}
+seen = []
+wv.sink = seen
+
+
+class FakeDb:
+    def close(self):
+        pass
+
+
+def with_car(vin, codes):
+    real_connect, real_faults, real_vehicle = (
+        records.connect, records.faults, records.vehicle)
+    records.connect = lambda: FakeDb()
+    records.faults = lambda db: [{"code": c, "active": True, "severity": "warning",
+                                  "descr": c, "module": None} for c in codes]
+    records.vehicle = lambda db: {"vin": vin}
+    try:
+        wv.faults(1000.0)
+    finally:
+        records.connect, records.faults, records.vehicle = (
+            real_connect, real_faults, real_vehicle)
+
+
+with_car("VIN-B", ["P0420"])
+ok("a different car's codes are adopted silently", not seen)
+ok("and become the new baseline", wv.known_codes == {"P0420"})
+with_car("VIN-B", ["P0420", "P0301"])
+ok("a genuinely new code on the same car IS announced",
+   any("P0301" in a["title"] for a in seen))
+
 ok("every rule has both an arming and a re-arming level",
    all(r.get("on") and r.get("off") for r in watch.RULES))
 ok("no rule fires on a single sample except the one that should",
