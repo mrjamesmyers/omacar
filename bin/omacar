@@ -281,9 +281,11 @@ kiosk() {
 
 tablet_status() {
   local k w
-  # systemctl exits non-zero for "disabled", which is an answer, not a failure.
-  k=$(systemctl --user is-enabled omacar-kiosk.service 2>/dev/null); k=${k:-missing}
-  w=$(systemctl --user is-enabled omacar-watch.service 2>/dev/null); w=${w:-missing}
+  # systemctl exits non-zero for "disabled", which is an answer, not a failure
+  # — and `set -e` at the top of this file treats it as one without the guard.
+  k=$(systemctl --user is-enabled omacar-kiosk.service 2>/dev/null || true)
+  w=$(systemctl --user is-enabled omacar-watch.service 2>/dev/null || true)
+  k=${k:-missing}; w=${w:-missing}
   echo
   printf "  %-22s %s\n" "kiosk at login" "$k"
   printf "  %-22s %s\n" "watchdog at login" "$w"
