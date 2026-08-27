@@ -259,6 +259,12 @@ model as the live path, so the year does not develop a seam at the boundary.
 
 ## The tablet in the car
 
+Running natively on an x86 tablet with the adapter in the port and no second
+computer anywhere — which is the point. **[doc/tablet.md](doc/tablet.md)** has
+what to buy, why heat rather than the processor decides it, how to power it
+from 12 V without browning out at every crank, and the honest list of what
+Omarchy does not yet give you on a tablet.
+
     omacar tablet setup
 
 One command, and it says what it is about to do before it does it: watchdog at
