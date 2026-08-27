@@ -108,6 +108,26 @@ class Handler(SimpleHTTPRequestHandler):
         path, _, query = self.path.partition("?")
         if path == "/.mark":
             return self._send(MARK.encode(), "text/plain")
+        if path == "/report.html":
+            # The same document `omacar share` writes, handed to the browser as
+            # a download. Self-contained, so what lands in somebody's inbox
+            # opens without this server or any other.
+            import share
+            from urllib.parse import parse_qs, unquote_plus
+            q = parse_qs(query)
+            note = unquote_plus((q.get("note") or [""])[0])
+            doc = share.build(note=note or None,
+                              include_photos=(q.get("photos") or ["1"])[0] != "0")
+            body = doc.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Disposition",
+                             'attachment; filename="omacar-report.html"')
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path.startswith("/photo/"):
             # Resolved through photos.path_of, which refuses anything that
             # climbs out of the folder. Never join a request path directly.

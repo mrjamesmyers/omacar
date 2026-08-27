@@ -26,9 +26,19 @@ export default function report(root) {
   const failed = m6.filter((t) => t.pass === false);
   const marginal = m6.filter((t) => t.pass !== false && t.headroom > 0.85);
 
+  const note = h("input", { type: "text", style: { maxWidth: "320px" },
+    placeholder: "A note for whoever reads it (optional)" });
+
   root.appendChild(h("div.row.wrapline.noprint", { style: { marginBottom: "4px" } },
     h("div", h("div.eyebrow", "Records"), h("div.title", "Vehicle report")),
-    h("div.right.row", { style: { gap: "8px" } },
+    h("div.right.row.wrapline", { style: { gap: "8px" } },
+      note,
+      // One file, self-contained: no server, no account, no link that rots.
+      h("button.btn", { onclick: () => {
+        const q = new URLSearchParams();
+        if (note.value.trim()) q.set("note", note.value.trim());
+        window.location.href = "/report.html?" + q.toString();
+      } }, "Download to share"),
       h("button.btn", { onclick: () => store.refreshCar().then(() => location.reload()) }, "Refresh"),
       h("button.btn.primary", { onclick: () => window.print() }, "Print"))));
 

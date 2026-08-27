@@ -739,6 +739,28 @@ ok("an empty layout falls back to the default",
 api.save_drive_layout(dict(api.DEFAULT_DRIVE))
 
 
+# ---- the shareable report ---------------------------------------------------
+head("Sharing")
+
+import share  # noqa: E402
+
+doc = share.build(note="for the garage")
+ok("the report is a whole document", doc.startswith("<!doctype html>"))
+ok("the note reaches it", "for the garage" in doc)
+# The whole point: it opens on somebody else's machine, ten years from now,
+# with no server and no network.
+ok("nothing is fetched from anywhere",
+   "http://" not in doc and "https://" not in doc)
+ok("no stylesheet or script is linked",
+   "<link" not in doc.lower() and "<script" not in doc.lower())
+ok("it says how it was produced", "read from the vehicle" in doc.lower()
+   or "control units" in doc.lower())
+# A simulated car must say so in anything that leaves the machine.
+ok("a simulated car is labelled as one in the report",
+   ("SIMULATED" in doc) == bool(records.snapshot().get("simulated")))
+ok("the vehicle is named in the title", "OmaCar report" in doc)
+
+
 # ---- the API surface --------------------------------------------------------
 head("API")
 

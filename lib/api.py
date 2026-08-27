@@ -49,6 +49,7 @@ import concerns  # noqa: E402
 import photos   # noqa: E402
 import garage   # noqa: E402
 import records  # noqa: E402
+import share    # noqa: E402
 import theme    # noqa: E402
 
 try:

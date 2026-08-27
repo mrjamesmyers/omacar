@@ -14,6 +14,7 @@
 #                             the polling daemon that feeds the cluster
 #   omacar sim seed|start|stop|status
 #                             a simulated 2015 CR-Z — history, faults, service
+#   omacar share [note]       one self-contained file to hand to a mechanic
 #   omacar photo [add F]      photographs of what you can see, filed by code
 #   omacar concerns           what is trending somewhere it should not
 #   omacar snapshot [label]   freeze the whole state, for comparing later
@@ -490,6 +491,7 @@ for n in names:
       *) sim_status ;;
     esac ;;
   status) exec python3 "$ROOT/lib/status.py" ;;
+  share) shift; exec python3 "$ROOT/lib/share.py" "$@" ;;
   photo) shift; exec python3 "$ROOT/lib/photos.py" "$@" ;;
   concerns) exec python3 "$ROOT/lib/concerns.py" list ;;
   snapshot) shift; exec python3 "$ROOT/lib/concerns.py" capture "$@" ;;

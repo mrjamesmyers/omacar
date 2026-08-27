@@ -153,6 +153,67 @@ fifteen seconds. A file on disk does not know the process writing it has died,
 and without that check the app shows last Tuesday's road speed as the current
 one — which on a dashboard is not a cosmetic problem.
 
+## Sharing it
+
+    omacar share "second opinion on the IMA pack, please"
+
+One self-contained HTML file — the scan, the concerns, the service book and
+the photographs, all inlined — that opens in any browser with no server, no
+account and no network. Email it to a mechanic, put it on a stick, attach it
+to a listing when you sell the car. It will still open in ten years, which is
+not true of a link to somebody's cloud. The same file is a button in the app.
+
+For live viewing there is `omacar cockpit`, which is read-only unless told
+otherwise: a mechanic watching your car over your Wi-Fi cannot clear its codes.
+
+## Photographs
+
+A perished hose is not on the bus, and a picture of it is half the diagnosis.
+Photographs are filed against a code, a concern, a snapshot or a service item,
+with a note and the odometer, and they travel in the vehicle's own record.
+
+The camera needs a secure context, so it works on the machine running OmaCar
+and in the kiosk, and not on a cockpit display reached over the LAN — that is
+a browser rule and every browser enforces it. Rather than a button that cannot
+work, the app says so and offers a file picker, which on a phone still opens
+the camera.
+
+## More than one car
+
+    omacar vehicle              the garage
+    omacar vehicle use <vin>    look at another one
+
+Each vehicle gets its own record, keyed by VIN, and plugging in switches
+automatically — the VIN comes back in the first survey, before anything is
+written. A tool that only knows the car it saw last is a tool for somebody with
+one car, and merging two cars' records is not a merge: it is a driver being
+shown trouble codes their vehicle has never set.
+
+## Trends, and what to worry about
+
+    omacar concerns
+    omacar snapshot "before the oil change"
+
+A scan tool tells you a self-test is passing. It is passing *today*, and the
+useful question is for how much longer. OmaCar keeps the same measurement over
+months and draws a line through it — least squares on the raw points, with the
+fit quality carried so it can decline to draw a conclusion through a cloud, and
+bands rather than dates because a straight line does not support a date.
+
+On the simulated car it finds long-term fuel trim drifting from +2.8% to +8.3%
+across the year at 0.42% a month — which is the cause behind two of the codes
+that car is holding, arrived at from the trend alone.
+
+A **snapshot** freezes the whole state. The watchdog takes one automatically
+whenever a rule fires, because a coolant spike on a climb is gone by the time
+anybody opens the app, and an alert without its evidence is a rumour.
+
+## How it compares to a Snap-on tablet
+
+Honestly, in [doc/parity.md](doc/parity.md), including the two places it is
+genuinely behind — there is no lab scope, and manufacturer protocols are what
+their price actually buys.
+
 ## The advisor
 
     omacar ai                    everything at once, cheapest certain work first
