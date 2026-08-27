@@ -425,6 +425,77 @@ ok("a missing theme falls back rather than failing",
    theme_mod.palette("/nonexistent/colors.toml")["mode"] == "dark")
 
 
+# ---- the vehicle book -------------------------------------------------------
+head("Odometer and service book")
+
+import book  # noqa: E402
+
+btmp = tempfile.mkdtemp()
+book_real = records.DB
+records.DB = book.records.DB = os.path.join(btmp, "b.db")
+bdb = sqlite3.connect(records.DB)
+bdb.execute("""CREATE TABLE samples (t REAL PRIMARY KEY, rpm REAL, speed REAL,
+    load REAL, throttle REAL, coolant REAL, intake REAL, maf REAL, stft REAL,
+    ltft REAL, timing REAL, lphk REAL, eff REAL)""")
+# Fifteen minutes at exactly 96.6 km/h — sixty miles an hour.
+drive_t0 = time.time() - 900
+bdb.executemany("INSERT INTO samples VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                [(drive_t0 + i, 2100, 96.6, 35, 22, 88, 28, 7.5, 0, 4, 14, None, .6)
+                 for i in range(900)])
+bdb.commit()
+bdb.close()
+
+ok("with nothing set there is no odometer", book.odometer()[0] is None)
+
+# The reading is taken before the drive, so the drive counts.
+book.set_odometer(100000.0, when=time.time() - 1800)
+km, at, driven = book.odometer()
+# OBD-II has no odometer PID; this is speed integrated, so it has to be right.
+ok("the odometer advances by what was driven", abs(driven - 24.15) < 0.4)
+ok("...on top of the reading you gave it", abs(km - 100024.15) < 0.4)
+
+# And a reading taken after the drive must not count it twice.
+book.set_odometer(100050.0, when=time.time())
+ok("a fresh reading resets what counts as since",
+   abs(book.odometer()[0] - 100050.0) < 0.2)
+
+bdb = sqlite3.connect(records.DB)
+bdb.row_factory = sqlite3.Row
+n = book.ensure_schedule(bdb)
+bdb.commit()
+ok("a car with no book gets a starter schedule", n == len(book.STARTER))
+svc = records.service(bdb, book.odometer()[0])
+# Everything starts overdue on purpose: eleven green ticks on a car nobody has
+# told us anything about would be a lie.
+ok("and everything in it starts due", all(i["state"] == "overdue" for i in svc["items"]))
+bdb.close()
+
+ok("logging by a partial name finds the item",
+   book.log_service("oil") == "Engine oil & filter")
+ok("an unknown item is refused rather than invented",
+   book.log_service("flux capacitor") is None)
+
+bdb = sqlite3.connect(records.DB)
+bdb.row_factory = sqlite3.Row
+svc = records.service(bdb, book.odometer()[0])
+oil = next(i for i in svc["items"] if i["item"].startswith("Engine oil"))
+ok("a logged item is no longer due", oil["state"] == "ok" and oil["life"] > 95)
+ok("the rest still are", sum(1 for i in svc["items"] if i["state"] == "overdue")
+   == len(book.STARTER) - 1)
+bdb.close()
+
+book.add_item("Timing belt", interval_km=160000, interval_days=3650)
+bdb = sqlite3.connect(records.DB)
+bdb.row_factory = sqlite3.Row
+items = [i["item"] for i in records.service(bdb, 100050.0)["items"]]
+bdb.close()
+ok("an item can be added", "Timing belt" in items)
+ok("and removed", book.forget_item("Timing belt") == 1)
+
+records.DB = book.records.DB = book_real
+shutil.rmtree(btmp, ignore_errors=True)
+
+
 # ---- cockpit and the drive layout -------------------------------------------
 head("Cockpit and drive layout")
 

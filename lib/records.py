@@ -460,6 +460,41 @@ def performance(series):
     return out
 
 
+def driven_since(db, since):
+    """Kilometres covered since an instant. Lives here rather than in book.py
+    because the snapshot needs it and nothing should import the CLI."""
+    if db is None or since is None:
+        return 0.0
+    total = 0.0
+    day = datetime.fromtimestamp(since).strftime("%Y-%m-%d")
+    for d in days(db):
+        if d["day"] < day:
+            continue
+        if d["day"] == day:
+            total += _partial_day(db, since)
+        else:
+            total += d.get("km") or 0
+    return round(total, 2)
+
+
+def _partial_day(db, since):
+    """The part of one day that came after an instant, from the raw samples."""
+    try:
+        raw = db.execute(
+            "SELECT t, speed FROM samples WHERE t >= ? AND t < ? ORDER BY t",
+            (since, since + 86400)).fetchall()
+    except sqlite3.Error:
+        return 0.0
+    km, prev = 0.0, None
+    for r in raw:
+        t, speed = r["t"], r["speed"]
+        dt = 1.0 if prev is None else min(10.0, t - prev)
+        prev = t
+        if speed and speed > MOVING_KPH:
+            km += speed * dt / 3600.0
+    return km
+
+
 def trips(db, n=20):
     return rows(db, "SELECT * FROM trips ORDER BY t0 DESC LIMIT ?", (n,),
                 table="trips")
@@ -573,8 +608,17 @@ def snapshot(include_samples=False):
     v = vehicle(db)
     series = days(db)
     perf = performance(series)
-    odo = ((snap.get("odometer_km") if snap.get("connected") else None)
-           or (perf or {}).get("odometer") or v.get("odometer_km"))
+    # A live sample that carries one wins (the simulator publishes it); then
+    # the baseline-plus-driven figure the book keeps; then the daily rollups'
+    # running total. OBD-II has no odometer PID, so none of these came off the
+    # bus and lib/book.py says so wherever it is shown.
+    odo = (snap.get("odometer_km") if snap.get("connected") else None)
+    if odo is None and v.get("odometer_at") is not None:
+        base = v.get("odometer_km")
+        if base is not None:
+            odo = float(base) + driven_since(db, v["odometer_at"])
+    if odo is None:
+        odo = (perf or {}).get("odometer") or v.get("odometer_km")
     f = faults(db)
     out = {
         "checked": int(time.time()),

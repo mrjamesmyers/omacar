@@ -28,6 +28,7 @@ Design rules, all learned the hard way by anyone who has built an alerter:
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import time
@@ -364,11 +365,22 @@ class Watch:
         if speed > records.MOVING_KPH:
             self.last_moving = now
             if self.trip is None:
-                self.trip = {"t0": now, "km": 0.0, "top": 0.0, "hot": 0.0}
+                self.trip = {"t0": now, "km": 0.0, "top": 0.0, "hot": 0.0,
+                             "litres": 0.0, "moving_s": 0.0, "idle_s": 0.0}
             self.trip["km"] += speed * POLL / 3600.0
+            self.trip["moving_s"] += POLL
             self.trip["top"] = max(self.trip["top"], speed)
         if self.trip is not None:
             self.trip["hot"] = max(self.trip["hot"], values.get("COOLANT_TEMP") or 0)
+            if speed <= records.MOVING_KPH:
+                self.trip["idle_s"] += POLL
+            # Fuel the same way everything else in OmaCar does it: mass air
+            # flow over the stoichiometric ratio, integrated. A trip without a
+            # fuel figure is half a trip.
+            maf = values.get("MAF")
+            if maf and maf > 0:
+                self.trip["litres"] += ((maf / records.AFR_GASOLINE) * POLL
+                                        / records.FUEL_DENSITY_G_PER_L)
         if self.trip is None:
             return
         if running or now - self.last_moving < TRIP_END_GAP:
@@ -376,6 +388,10 @@ class Watch:
         trip, self.trip = self.trip, None
         if trip["km"] < TRIP_MIN_KM:
             return
+        # File it in the record as well as announcing it. The simulator seeds
+        # a `trips` table and the real daemon never did, so on an actual car
+        # the drive log had nothing in it.
+        self.file_trip(trip)
         u = self.units
         mins = max(1, int((self.last_moving - trip["t0"]) / 60))
         # The trip summary is the one alert that is not a warning. It is the
@@ -386,6 +402,30 @@ class Watch:
             f"top {records.to_dist(trip['top'], u):.0f} {u['speed']}",
             "low", extra={"km": round(trip["km"], 2), "minutes": mins},
             always=True)
+
+    def file_trip(self, trip):
+        try:
+            db = sqlite3.connect(records.DB, timeout=5.0)
+        except sqlite3.Error:
+            return
+        try:
+            db.execute("""CREATE TABLE IF NOT EXISTS trips (
+                t0 REAL PRIMARY KEY, t1 REAL, km REAL, litres REAL, lphk REAL,
+                moving_s INTEGER, idle_s INTEGER, top_kph REAL,
+                kind TEXT, label TEXT)""")
+            km, litres = trip["km"], trip.get("litres", 0.0)
+            db.execute("INSERT OR REPLACE INTO trips VALUES (?,?,?,?,?,?,?,?,?,?)",
+                       (trip["t0"], self.last_moving, round(km, 2),
+                        round(litres, 3),
+                        round(litres / km * 100.0, 2) if km > 0.5 and litres else None,
+                        int(trip.get("moving_s", 0)), int(trip.get("idle_s", 0)),
+                        round(trip["top"], 1), "drive",
+                        time.strftime("%H:%M", time.localtime(trip["t0"]))))
+            db.commit()
+        except sqlite3.Error:
+            pass
+        finally:
+            db.close()
 
     # -- raising -------------------------------------------------------------
     def raise_alert(self, key, title, body, urgency, extra=None, always=False):

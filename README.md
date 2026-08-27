@@ -106,6 +106,31 @@ free, and validates the North American check digit rather than trusting a
 misread. The model is genuinely not derivable without a licensed database, so
 it is left for you to fill in rather than guessed at.
 
+Two things are not on the car and cannot be:
+
+    omacar odometer set 85700     the reading, once
+    omacar service log oil        what has been done to it
+
+**There is no odometer PID.** Service 01 PID 0xA6 exists in the later
+standards and almost nothing implements it — python-obd does not even carry a
+command for it — so the mileage on your dashboard is unavailable to every
+generic scan tool, the expensive ones included. Anything that shows you one
+either asked a manufacturer protocol or did what this does: took a reading
+from you once and integrated distance from the wheels ever since. That tracks
+a trip meter to well inside a percent, it drifts if the daemon was not running
+while you drove, and the tool says which figure is which and when it was set
+rather than presenting a derived number as if it came off the bus.
+
+**The service record is not on the car either** — Maintenance Minder lives in
+the instrument cluster behind a manufacturer protocol. A car with no book gets
+a starter schedule with every item showing as due, because eleven green ticks
+on a vehicle nobody has told us anything about would be a lie. Log what has
+been done and it counts down from there. `omacar service add` and `forget`
+adjust the list; the handbook wins over the defaults.
+
+The watchdog now files finished trips into the record as well as announcing
+them, so the drive log has something in it on a real car.
+
 Daily figures no longer need a compaction to have run: `records.days()` merges
 the stored rollups with a live rollup of recent raw samples, so a car driven
 for the first time this morning has a year view that includes this morning.
