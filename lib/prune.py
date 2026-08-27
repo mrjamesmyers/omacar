@@ -51,13 +51,30 @@ def price():
 
 
 def rollup(rows):
-    """One day of samples reduced to the row the `days` table holds."""
+    """One day of samples reduced to the row the `days` table holds.
+
+    Carries the health figures as well as the driving ones. A trend you can
+    only see across months is exactly the trend worth seeing, and the raw
+    samples it would have come from are deleted by then.
+    """
     km = litres = moving_s = engine_s = idle_s = 0.0
-    top_kph = 0.0
+    top_kph = rpm_max = 0.0
+    ltft_sum, ltft_n, coolant_max = 0.0, 0, None
     prev_t = None
     trips = 0
     gap_open = True
-    for (t, speed, maf) in rows:
+    for row in rows:
+        t, speed, maf = row[0], row[1], row[2]
+        ltft = row[3] if len(row) > 3 else None
+        coolant = row[4] if len(row) > 4 else None
+        rpm = row[5] if len(row) > 5 else None
+        if ltft is not None:
+            ltft_sum += ltft
+            ltft_n += 1
+        if coolant is not None:
+            coolant_max = coolant if coolant_max is None else max(coolant_max, coolant)
+        if rpm:
+            rpm_max = max(rpm_max, rpm)
         dt = 1.0 if prev_t is None else t - prev_t
         if dt > MAX_STEP:
             # A gap is the daemon having been away. It also ends a trip.
@@ -84,6 +101,9 @@ def rollup(rows):
         "moving_s": int(moving_s), "engine_s": int(engine_s),
         "idle_s": int(idle_s), "top_kph": round(top_kph, 1),
         "trips": trips,
+        "ltft_mean": round(ltft_sum / ltft_n, 2) if ltft_n > 60 else None,
+        "coolant_max": round(coolant_max, 1) if coolant_max is not None else None,
+        "rpm_max": round(rpm_max) if rpm_max else None,
     }
 
 
@@ -99,9 +119,10 @@ def compact(keep_days=KEEP_DAYS, dry=False, verbose=True):
             moving_s INTEGER, engine_s INTEGER, idle_s INTEGER,
             top_kph REAL, trips INTEGER, cost REAL, odo REAL)""")
 
+        records.migrate_days(db)
         old = db.execute(
-            "SELECT t, speed, maf FROM samples WHERE t < ? ORDER BY t ASC",
-            (cutoff,)).fetchall()
+            "SELECT t, speed, maf, ltft, coolant, rpm FROM samples "
+            "WHERE t < ? ORDER BY t ASC", (cutoff,)).fetchall()
         if not old:
             return {"rolled": 0, "deleted": 0, "days": 0}
 
@@ -126,15 +147,19 @@ def compact(keep_days=KEEP_DAYS, dry=False, verbose=True):
                 continue
             db.execute(
                 "INSERT INTO days (day, km, litres, lphk, moving_s, engine_s, "
-                "idle_s, top_kph, trips, cost) VALUES (?,?,?,?,?,?,?,?,?,?) "
+                "idle_s, top_kph, trips, cost, ltft_mean, coolant_max, rpm_max) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(day) DO UPDATE SET km=excluded.km, "
                 "litres=excluded.litres, lphk=excluded.lphk, "
                 "moving_s=excluded.moving_s, engine_s=excluded.engine_s, "
                 "idle_s=excluded.idle_s, top_kph=excluded.top_kph, "
-                "trips=excluded.trips, cost=excluded.cost",
+                "trips=excluded.trips, cost=excluded.cost, "
+                "ltft_mean=excluded.ltft_mean, coolant_max=excluded.coolant_max, "
+                "rpm_max=excluded.rpm_max",
                 (day, r["km"], r["litres"], r["lphk"], r["moving_s"],
                  r["engine_s"], r["idle_s"], r["top_kph"], r["trips"],
-                 round(r["litres"] * p, 2)))
+                 round(r["litres"] * p, 2), r["ltft_mean"], r["coolant_max"],
+                 r["rpm_max"]))
             rolled += 1
 
         deleted = 0

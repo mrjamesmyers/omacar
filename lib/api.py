@@ -11,10 +11,19 @@ what the car said.
     GET  /api/ai                poll an advisor job
     GET  /api/ai/history
     GET  /api/theme             the active Omarchy palette, mapped to our roles
+    GET  /api/concerns          what is trending somewhere it should not
+    GET  /api/snapshots         states captured by hand or by the watchdog
+    GET  /api/vehicles          the garage
+    GET  /api/photos            photographs, filed against codes and concerns
+    POST /api/photo             add, annotate or remove one
+    POST /api/snapshot          freeze the state now
+    POST /api/vehicle           switch to another car, or name one
     GET  /api/drive             the drive-mode layout
     POST /api/drive             change it
     POST /api/actuate           command an actuator, or stop one
     POST /api/units             switch between imperial and metric
+    POST /api/odometer          set the reading (there is no odometer PID)
+    POST /api/service           log, add or forget a maintenance item
     POST /api/scan              run a full-system scan and file the report
     POST /api/clear             clear codes in one module or all of them
     POST /api/record            save a stretch of samples as a recording
@@ -35,6 +44,10 @@ import time
 import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import book     # noqa: E402
+import concerns  # noqa: E402
+import photos   # noqa: E402
+import garage   # noqa: E402
 import records  # noqa: E402
 import theme    # noqa: E402
 
@@ -424,6 +437,16 @@ def handle_get(path, query):
         return 200, {"available": bool(ai and ai.available())}
     if path == "/api/drive":
         return 200, drive_layout()
+    if path == "/api/concerns":
+        return 200, {"concerns": concerns.assess()}
+    if path == "/api/snapshots":
+        return 200, {"snapshots": concerns.snapshots(
+            qint(query, "n", 40, 1, 200))}
+    if path == "/api/photos":
+        return 200, {"photos": photos.listing(
+            subject=qstr(query, "subject"), subject_id=qstr(query, "id"))}
+    if path == "/api/vehicles":
+        return 200, {"vehicles": garage.vehicles(), "current": garage.current()}
     if path == "/api/theme":
         # The mtime rides along so the app can re-apply on a theme change
         # without re-parsing anything it already has.
@@ -452,6 +475,65 @@ def handle_post(path, body):
             return 400, {"error": "from and to (epoch seconds) required"}
     if path == "/api/drive":
         return 200, save_drive_layout(data)
+    if path == "/api/snapshot":
+        return 200, concerns.capture(
+            reason=data.get("reason") or "manual",
+            label=data.get("label"), note=data.get("note"))
+    if path == "/api/photo":
+        act = data.get("action") or "add"
+        if act == "remove":
+            return 200, {"removed": photos.remove(data.get("id") or "")}
+        if act == "annotate":
+            return 200, {"ok": photos.annotate(
+                data.get("id") or "", note=data.get("note"),
+                subject=data.get("subject"), subject_id=data.get("subject_id"),
+                tags=data.get("tags"))}
+        try:
+            return 200, photos.add(
+                data.get("image") or "", subject=data.get("subject") or "general",
+                subject_id=data.get("subject_id") or "",
+                note=data.get("note") or "", tags=data.get("tags"))
+        except ValueError as e:
+            return 400, {"error": str(e)}
+    if path == "/api/vehicle":
+        key = data.get("key")
+        if data.get("name") and key:
+            garage.name_vehicle(key, data["name"])
+        elif key:
+            garage.set_current(key)
+            records.refresh_db()
+        return 200, {"current": garage.current(),
+                     "vehicles": garage.vehicles()}
+    if path == "/api/odometer":
+        try:
+            km = float(data["km"])
+        except (KeyError, TypeError, ValueError):
+            return 400, {"error": "km required"}
+        book.set_odometer(km)
+        return 200, {"odometer": book.odometer()[0]}
+    if path == "/api/service":
+        act = data.get("action")
+        if act == "log":
+            done = book.log_service(data.get("item") or "")
+            if not done:
+                return 404, {"error": "no such item"}
+            return 200, {"logged": done}
+        if act == "add":
+            return 200, {"added": book.add_item(
+                data.get("item") or "Item",
+                interval_km=float(data.get("interval_km") or 0),
+                interval_days=int(data.get("interval_days") or 0),
+                note=data.get("note") or "")}
+        if act == "forget":
+            return 200, {"removed": book.forget_item(data.get("item") or "")}
+        if act == "start":
+            db = book.open_db()
+            try:
+                n = book.ensure_schedule(db)
+            finally:
+                db.close()
+            return 200, {"started": n}
+        return 400, {"error": "action must be log, add, forget or start"}
     if path == "/api/units":
         want = str(data.get("system") or "").lower()
         if want not in records.UNITS:

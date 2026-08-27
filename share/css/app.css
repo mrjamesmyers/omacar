@@ -477,3 +477,24 @@ textarea { resize: vertical; min-height: 66px; }
 .drive-chip button:disabled { opacity: .3; cursor: default; }
 .drive-speed.warn { color: var(--warn); }
 .drive-speed.bad { color: var(--bad); }
+
+/* ---------------------------------------------------------------- photos */
+/* A perished hose is not on the bus, and a picture of it is half the
+   diagnosis. Thumbnails are big enough to recognise the thing in. */
+.photos { display: flex; flex-wrap: wrap; gap: 10px; }
+.photo {
+  margin: 0; width: 168px; border: 1px solid var(--edge); border-radius: 10px;
+  overflow: hidden; background: var(--panel-2);
+}
+.photo img { display: block; width: 100%; height: 118px; object-fit: cover; cursor: zoom-in; }
+.photo figcaption {
+  display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+  font-size: .64rem; color: var(--faint); line-height: 1.35;
+}
+.photo figcaption span { flex: 1; min-width: 0; overflow: hidden;
+                         text-overflow: ellipsis; white-space: nowrap; }
+.photo figcaption button {
+  border: 0; background: transparent; color: var(--faint); cursor: pointer;
+  font-size: .95rem; line-height: 1; padding: 2px 4px; border-radius: 5px;
+}
+.photo figcaption button:hover { background: var(--bad-bg); color: var(--bad); }

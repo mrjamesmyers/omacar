@@ -26,6 +26,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import garage   # noqa: E402
 import records  # noqa: E402
 
 # How often the daemon repeats it. Codes and monitors move on the scale of a
@@ -91,6 +92,9 @@ def open_db():
     db.execute("""CREATE TABLE IF NOT EXISTS modules (
         id TEXT PRIMARY KEY, name TEXT, addr TEXT, system TEXT,
         generic INTEGER, part TEXT, sw TEXT, codes TEXT, pos INTEGER)""")
+    db.execute("""CREATE TABLE IF NOT EXISTS mode06_history (
+        mid TEXT, at REAL, value REAL, lo REAL, hi REAL,
+        PRIMARY KEY (mid, at))""")
     db.execute("CREATE TABLE IF NOT EXISTS vehicle (k TEXT PRIMARY KEY, v TEXT)")
     return db
 
@@ -277,6 +281,12 @@ def read_mode06(conn, obd, db):
                 "lo=excluded.lo, hi=excluded.hi, pos=excluded.pos",
                 (mid, label, pretty(name), value, lo, hi,
                  unit, "", pos))
+            # And a dated copy. The current value answers "is it passing";
+            # the history answers "for how much longer", which is the more
+            # useful question and the one no consumer tool asks.
+            db.execute(
+                "INSERT OR REPLACE INTO mode06_history VALUES (?,?,?,?,?)",
+                (mid, round(time.time() / 3600) * 3600.0, value, lo, hi))
             pos += 1
             n += 1
     return n
@@ -441,76 +451,50 @@ def vin_check_digit(v):
 
 # ---- one pass ---------------------------------------------------------------
 
-def stored_source():
-    """Whose record is in the database right now — a real car or the simulator."""
-    db = records.connect()
-    if db is None:
+def read_vin(conn, obd):
+    """The VIN, before anything is written. This is what decides which car's
+    record we are about to open."""
+    cmd = getattr(obd.commands, "VIN", None)
+    if cmd is None:
         return None
     try:
-        row = db.execute("SELECT v FROM vehicle WHERE k='simulated'").fetchone() \
-            if records.has(db, "vehicle") else None
-        if row is None:
-            return None
-        try:
-            return "simulated" if json.loads(row[0]) else "adapter"
-        except (ValueError, TypeError):
-            return None
-    finally:
-        db.close()
-
-
-def set_aside():
-    """Move a simulated record out of the way before a real car writes here.
-
-    Merging is not an option. The simulator's fault list, service book and
-    year of driving belong to a car that does not exist, and half of that on
-    screen next to half of a real car's is worse than either — it would show
-    somebody trouble codes their vehicle has never set. So the simulated
-    database is kept, under its own name, and a real car starts clean.
-
-    `omacar sim seed` builds a fresh simulated one whenever it is wanted, so
-    nothing here is destructive.
-    """
-    # Beside the database, not in the state directory. Those are usually the
-    # same place, and when they are not, os.replace across two filesystems
-    # fails with EXDEV and this quietly did nothing at all — which is the worst
-    # possible outcome, because the caller then writes a real car into a
-    # simulated record believing it was moved.
-    aside = os.path.join(os.path.dirname(os.path.abspath(records.DB)),
-                         "telemetry-simulated.db")
-    try:
-        if os.path.exists(aside):
-            os.remove(aside)
-        os.replace(records.DB, aside)
-    except OSError:
+        v = value_of(conn.query(cmd, force=True))
+    except Exception:                                     # noqa: BLE001
         return None
-    for suffix in ("-wal", "-shm"):
-        try:
-            os.remove(records.DB + suffix)
-        except OSError:
-            pass
-    return aside
-
-
-def prepare(verbose=False):
-    """Set a simulated record aside, if there is one. Call this BEFORE opening
-    a connection to the database — never during.
-
-    Renaming the file out from under a handle that is already open does not
-    fail loudly; SQLite follows the inode and then refuses the next write with
-    "attempt to write a readonly database", which is a mystifying way to be
-    told you moved the file. The daemon opens its sample connection at startup
-    and keeps it for the life of the process, so this has to happen first and
-    exactly once.
-    """
-    if stored_source() != "simulated":
+    if not v:
         return None
-    aside = set_aside()
-    if aside:
-        print(f"  a simulated car was in the record; kept it as "
-              f"{os.path.basename(aside)} and started fresh for this vehicle",
-              flush=True)
-    return aside
+    if isinstance(v, (bytes, bytearray)):
+        v = bytes(v).decode("ascii", "replace")
+    return str(v).strip().strip("\x00") or None
+
+
+def prepare(conn=None, obd=None):
+    """Point the tool at the car that is actually plugged in.
+
+    Call this BEFORE anything opens the database — the daemon opens its sample
+    connection at startup and keeps it for the life of the process. Switching
+    the file under a live SQLite handle does not fail loudly: SQLite follows
+    the inode and then refuses the next write with "attempt to write a
+    readonly database", which is a mystifying way to be told you moved a file.
+
+    Returns (key, is_new) or None when there is nothing to go on — an adapter
+    that will not give up a VIN keeps whatever record was current, which is
+    the best guess available and is at least stable.
+    """
+    if conn is None:
+        return None
+    if obd is None:
+        import obd as obd_mod
+        obd = obd_mod
+    vin = read_vin(conn, obd)
+    if not vin:
+        return None
+    key, is_new = garage.switch_to(vin)
+    records.refresh_db()
+    if is_new:
+        print(f"  a car we have not seen before — VIN {vin}, "
+              f"starting its own record", flush=True)
+    return key, is_new
 
 
 def survey(conn, obd=None, verbose=False):
@@ -550,7 +534,7 @@ def main():
         print(f"omacar survey: not connected ({conn.status()})", file=sys.stderr)
         return 1
     print(f"  surveying {port} ({kind}) over {conn.protocol_name()}")
-    prepare()
+    prepare(conn, obd)
     survey(conn, obd, verbose=True)
     conn.close()
     return 0

@@ -14,6 +14,10 @@
 #                             the polling daemon that feeds the cluster
 #   omacar sim seed|start|stop|status
 #                             a simulated 2015 CR-Z — history, faults, service
+#   omacar photo [add F]      photographs of what you can see, filed by code
+#   omacar concerns           what is trending somewhere it should not
+#   omacar snapshot [label]   freeze the whole state, for comparing later
+#   omacar vehicle [use VIN]  the garage — one record per car, keyed by VIN
 #   omacar odometer [set N]   the reading; OBD-II has no odometer, so you set it
 #   omacar service [log X]    the maintenance book and what has been done to it
 #   omacar survey             read codes, readiness and on-board tests from the car
@@ -486,6 +490,11 @@ for n in names:
       *) sim_status ;;
     esac ;;
   status) exec python3 "$ROOT/lib/status.py" ;;
+  photo) shift; exec python3 "$ROOT/lib/photos.py" "$@" ;;
+  concerns) exec python3 "$ROOT/lib/concerns.py" list ;;
+  snapshot) shift; exec python3 "$ROOT/lib/concerns.py" capture "$@" ;;
+  snapshots) exec python3 "$ROOT/lib/concerns.py" snapshots ;;
+  vehicle) shift; exec python3 "$ROOT/lib/garage.py" "$@" ;;
   odometer) shift; exec python3 "$ROOT/lib/book.py" "$@" ;;
   service)
     shift

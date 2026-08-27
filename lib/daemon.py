@@ -18,8 +18,12 @@ import connect  # noqa: E402
 import survey  # noqa: E402
 import telemetry  # noqa: E402
 
+import records  # noqa: E402
+
 LIVE = os.path.join(connect.STATE, "live.json")
-DB = os.path.join(connect.STATE, "telemetry.db")
+# Resolved at open time rather than at import: the vehicle can change between
+# the two, and it does — that is exactly what survey.prepare() is for.
+DB = None
 PIDFILE = os.path.join(connect.STATE, "daemon.pid")
 
 FAST_HZ = 5.0
@@ -28,7 +32,7 @@ SLOW_EVERY = 25
 
 
 def open_db():
-    db = sqlite3.connect(DB)
+    db = sqlite3.connect(records.DB)
     db.execute("""CREATE TABLE IF NOT EXISTS samples (
         t REAL PRIMARY KEY, rpm REAL, speed REAL, load REAL, throttle REAL,
         coolant REAL, intake REAL, maf REAL, stft REAL, ltft REAL,
@@ -69,12 +73,11 @@ def main():
                                 ("mid", telemetry.MID),
                                 ("slow", telemetry.SLOW))}
 
-    # Before anything opens the database: if the record in it belongs to the
-    # simulator, move it aside. Doing this later — with the sample connection
-    # already open — renames the file under a live handle, and the next write
-    # fails with "attempt to write a readonly database", which is a memorable
-    # way to spend an evening.
-    survey.prepare()
+    # Which car is this? The VIN decides which record we open, so it has to be
+    # read before anything opens one. Switching the file under a live SQLite
+    # handle does not fail loudly — it refuses the next write with "attempt to
+    # write a readonly database", which is a memorable way to spend an evening.
+    survey.prepare(conn, obd)
 
     db = open_db()
     sample, tick, last_row = {}, 0, 0.0

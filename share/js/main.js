@@ -19,6 +19,7 @@ import advisor from "./views/advisor.js";
 import tests from "./views/tests.js";
 import report from "./views/report.js";
 import drive from "./views/drive.js";
+import concernsView from "./views/concerns.js";
 import live from "./views/live.js";
 
 const ICONS = {
@@ -27,6 +28,7 @@ const ICONS = {
   codes: ["M12 3.5 21 20H3z", "M12 10v4", "M12 17.2v.1"],
   data: ["M3 17l4-7 3.5 4L15 6l6 11", "M3 20h18"],
   health: ["M12 21s-7.5-4.7-7.5-10A4.5 4.5 0 0 1 12 7.6 4.5 4.5 0 0 1 19.5 11c0 5.3-7.5 10-7.5 10z"],
+  concerns: ["M3.5 17.5 9 11l4 3.6 7.5-8.6", "M15.5 6h5v5"],
   service: ["M14.7 6.3a4 4 0 0 0 5 5L15 16l-3 3-3-3 4.7-4.7a4 4 0 0 0-5-5L12 3l3 3z"],
   history: ["M3.5 12a8.5 8.5 0 1 0 2.6-6.1", "M3 4v5h5", "M12 8v4.4l3 1.8"],
   tests: ["M5 12h3.2", "M15.8 12H19", "M12 5.2v13.6", "M8.2 8.6a5.4 5.4 0 0 0 0 6.8",
@@ -47,6 +49,7 @@ const VIEWS = [
   { id: "data", label: "Data", title: "Data lab", mount: data, fast: true },
   { id: "tests", label: "Tests", title: "Functional tests", mount: tests, fast: true },
   { id: "health", label: "Health", title: "Readiness and on-board tests", mount: health },
+  { id: "concerns", label: "Trends", title: "Areas of concern", mount: concernsView },
   { id: "service", label: "Service", title: "Service schedule", mount: service },
   { id: "history", label: "Log", title: "Drive history and records", mount: history },
   { id: "report", label: "Report", title: "Vehicle report", mount: report },

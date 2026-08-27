@@ -34,6 +34,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import concerns  # noqa: E402
 import hotplug  # noqa: E402
 import prune    # noqa: E402
 import records  # noqa: E402
@@ -429,6 +430,16 @@ class Watch:
 
     # -- raising -------------------------------------------------------------
     def raise_alert(self, key, title, body, urgency, extra=None, always=False):
+        # Freeze the state that produced this. A coolant spike on a climb is
+        # gone by the time anybody opens the app, and an alert without the
+        # evidence behind it is a rumour.
+        if self.sink is None and urgency in ("critical", "normal") \
+                and not key.startswith(("link", "trip", "hotplug")):
+            try:
+                shot = concerns.capture(reason=key.split(":")[0], label=title)
+                extra = dict(extra or {}, snapshot=shot.get("id"))
+            except Exception:                             # noqa: BLE001
+                pass
         if self.sink is not None:
             self.sink.append({"key": key, "title": title, "body": body,
                               "urgency": urgency, "extra": extra})

@@ -6,18 +6,36 @@
 // that decides — that is the manufacturer's rule and it is the right one,
 // because brake fluid does not care how far you have driven.
 
-import { h, store, dist, isoDate, grouped, lifeTone, U } from "../core.js";
+import { h, store, api, toast, confirmDialog, dist, isoDate, grouped,
+         lifeTone, U } from "../core.js";
 
 export default function service(root) {
   const car = store.car;
   const s = car && car.service;
-  if (!s) { root.appendChild(h("div.empty", "No service records.")); return; }
-  const next = s.next;
 
   root.appendChild(h("section.sect",
     h("div.head", h("div", h("div.eyebrow", "Maintenance"),
       h("div.title", "Service schedule")),
       h("button.btn.right", { onclick: () => window.print() }, "Print"))));
+
+  // Neither the odometer nor the service history is on the car — see
+  // lib/book.py — so both are edited here rather than only displayed.
+  root.appendChild(odometerCard());
+
+  if (!s) {
+    root.appendChild(h("div.card",
+      h("div.title", "No service record yet"),
+      h("p.lede", { style: { marginTop: "8px" } },
+        "Maintenance Minder lives in the instrument cluster behind a "
+        + "manufacturer protocol, so no scan tool at any price can read what "
+        + "has been done to this car. Start a schedule and log the work as you "
+        + "do it."),
+      h("div.row", { style: { marginTop: "12px" } },
+        h("button.btn.primary", { onclick: () => act(
+          { action: "start" }, "Started a schedule.") }, "Start a schedule"))));
+    return;
+  }
+  const next = s.next;
 
   root.appendChild(h("div.card.tint-" + (lifeTone(next.life) || "ok"),
     h("div.eyebrow", "Next due"),
@@ -42,7 +60,8 @@ export default function service(root) {
   const tbl = h("table.tbl",
     h("thead", h("tr",
       h("th", "Item"), h("th", "Minder"), h("th.num", "Life"),
-      h("th.num", "Remaining"), h("th", "Due"), h("th", "Last done"), h("th", "Notes"))));
+      h("th.num", "Remaining"), h("th", "Due"), h("th", "Last done"),
+      h("th", "Notes"), h("th.noprint", ""))));
   const tb = h("tbody");
   for (const it of s.items) {
     const tone = lifeTone(it.life);
@@ -58,7 +77,19 @@ export default function service(root) {
         : it.km_left < 0 ? "over by " + dist(Math.abs(it.km_left)) : dist(it.km_left)),
       h("td.muted", it.due_on ? isoDate(it.due_on) : "—"),
       h("td.muted", it.last_on ? `${isoDate(it.last_on)}${it.last_km ? "  ·  " + dist(it.last_km) : ""}` : "—"),
-      h("td.muted", { style: { maxWidth: "30ch" } }, it.note || "")));
+      h("td.muted", { style: { maxWidth: "26ch" } }, it.note || ""),
+      // The whole point of a service book is recording that something was
+      // done. One button per row, at the odometer reading as it stands.
+      h("td.noprint", h("button.btn.sm", { onclick: async () => {
+        const ok = await confirmDialog({
+          title: `Log ${it.item} as done today?`,
+          body: "It is recorded at the current odometer reading and starts "
+                + "counting down again from there.",
+          confirm: "Log it", tone: "primary",
+        });
+        if (!ok) return;
+        act({ action: "log", item: it.item }, `${it.item} logged.`);
+      } }, "Done today"))));
   }
   tbl.appendChild(tb);
   root.appendChild(h("div.card",
@@ -70,4 +101,76 @@ export default function service(root) {
     "Whichever interval is further along decides — mileage or time. "
     + "That is the manufacturer's rule, and it is why brake fluid comes due "
     + "on a car that has barely moved."));
+
+  root.appendChild(addCard());
+}
+
+// Every write here reloads, because the countdown, the odometer and the next
+// due item all move together and a half-updated schedule is a confusing one.
+async function act(body, said) {
+  try {
+    await api.service(body);
+    toast(said);
+    await store.refreshCar();
+    location.reload();
+  } catch (e) { toast(String(e.message || e), "bad"); }
+}
+
+// The odometer is not an OBD-II PID. It is a reading you gave once plus
+// distance integrated from road speed since, and it says so rather than
+// presenting a derived figure as if it came off the bus.
+function odometerCard() {
+  const car = store.car;
+  const v = car.vehicle || {};
+  const input = h("input", { type: "text", inputmode: "numeric",
+    placeholder: `reading in ${U.units.dist}`, style: { maxWidth: "210px" } });
+
+  return h("div.card",
+    h("div.row.wrapline",
+      h("div",
+        h("div.eyebrow", "Odometer"),
+        h("div.title", { style: { fontSize: "1.5rem", marginTop: "2px" } },
+          car.odometer ? dist(car.odometer) : "not set")),
+      h("form.right.row", { style: { gap: "8px" }, onsubmit: async (e) => {
+        e.preventDefault();
+        const n = parseFloat((input.value || "").replace(/,/g, ""));
+        if (!Number.isFinite(n) || n < 0) { toast("That is not a reading.", "bad"); return; }
+        try {
+          // Typed in whatever unit is on screen, which is the unit on the dash.
+          await api.setOdometer(n / U.units.km);
+          toast("Odometer set. It counts on from there by itself.");
+          await store.refreshCar();
+          location.reload();
+        } catch (e2) { toast(String(e2.message || e2), "bad"); }
+      } }, input, h("button.btn", { type: "submit" }, "Set"))),
+    h("p.muted", { style: { marginTop: "8px" } },
+      v.odometer_at
+        ? "OBD-II has no odometer PID — not one scan tool at any price can read "
+          + "the dashboard. This is the reading you gave plus distance "
+          + "integrated from road speed since. Correct it any time."
+        : "There is no odometer PID in OBD-II. Give it the reading once and it "
+          + "counts on from there, which is also what makes the mileage "
+          + "intervals below count down."));
+}
+
+function addCard() {
+  const name = h("input", { type: "text", placeholder: "Item, e.g. Timing belt" });
+  const far = h("input", { type: "text", inputmode: "numeric",
+    placeholder: U.units.dist, style: { maxWidth: "130px" } });
+  const days = h("input", { type: "text", inputmode: "numeric",
+    placeholder: "days", style: { maxWidth: "110px" } });
+
+  return h("form.card", { onsubmit: (e) => {
+    e.preventDefault();
+    if (!name.value.trim()) return;
+    act({ action: "add", item: name.value.trim(),
+          interval_km: (parseFloat(far.value) || 0) / U.units.km,
+          interval_days: parseInt(days.value, 10) || 0 }, "Added.");
+  } },
+    h("div.eyebrow", "Add an item"),
+    h("p.muted", { style: { marginTop: "4px" } },
+      "The starter schedule is right for most cars and wrong for none in a way "
+      + "that matters. Your handbook wins over it."),
+    h("div.row.wrapline", { style: { marginTop: "10px" } },
+      name, far, days, h("button.btn", { type: "submit" }, "Add")));
 }

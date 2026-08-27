@@ -108,6 +108,21 @@ class Handler(SimpleHTTPRequestHandler):
         path, _, query = self.path.partition("?")
         if path == "/.mark":
             return self._send(MARK.encode(), "text/plain")
+        if path.startswith("/photo/"):
+            # Resolved through photos.path_of, which refuses anything that
+            # climbs out of the folder. Never join a request path directly.
+            import photos
+            real = photos.path_of(path[len("/photo/"):])
+            if real is None:
+                return self._json({"error": "no such photograph"}, 404)
+            try:
+                with open(real, "rb") as f:
+                    blob = f.read()
+            except OSError:
+                return self._json({"error": "unreadable"}, 404)
+            kind = {"jpg": "image/jpeg", "png": "image/png",
+                    "webp": "image/webp"}.get(real.rsplit(".", 1)[-1], "application/octet-stream")
+            return self._send(blob, kind)
         if path.startswith("/api/"):
             out = api.handle_get(path, query)
             if out is None:

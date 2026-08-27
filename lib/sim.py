@@ -42,10 +42,13 @@ import sys
 import time
 from datetime import date, datetime, timedelta
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import garage   # noqa: E402
+import records  # noqa: E402
+
 STATE = os.path.expanduser(
     os.environ.get("XDG_STATE_HOME", "~/.local/state") + "/omacar")
 LIVE = os.path.join(STATE, "live.json")
-DB = os.path.join(STATE, "telemetry.db")
 PIDFILE = os.path.join(STATE, "sim.pid")
 # The bidirectional command channel. One small file the app writes and the
 # simulator reads — a socket would be a second thing that can break, and there
@@ -586,8 +589,8 @@ MODE06 = [
 # ---- writing it all down ----------------------------------------------------
 
 def open_db():
-    os.makedirs(STATE, exist_ok=True)
-    db = sqlite3.connect(DB)
+    os.makedirs(os.path.dirname(records.DB), exist_ok=True)
+    db = sqlite3.connect(records.DB)
     db.execute("""CREATE TABLE IF NOT EXISTS samples (
         t REAL PRIMARY KEY, rpm REAL, speed REAL, load REAL, throttle REAL,
         coolant REAL, intake REAL, maf REAL, stft REAL, ltft REAL,
@@ -596,7 +599,8 @@ def open_db():
     db.execute("""CREATE TABLE IF NOT EXISTS days (
         day TEXT PRIMARY KEY, km REAL, litres REAL, lphk REAL,
         moving_s INTEGER, engine_s INTEGER, idle_s INTEGER,
-        top_kph REAL, trips INTEGER, cost REAL, odo REAL)""")
+        top_kph REAL, trips INTEGER, cost REAL, odo REAL,
+        ltft_mean REAL, coolant_max REAL, rpm_max REAL)""")
     db.execute("""CREATE TABLE IF NOT EXISTS trips (
         t0 REAL PRIMARY KEY, t1 REAL, km REAL, litres REAL, lphk REAL,
         moving_s INTEGER, idle_s INTEGER, top_kph REAL,
@@ -609,6 +613,7 @@ def open_db():
         item TEXT PRIMARY KEY, code TEXT, last_km REAL, last_at REAL,
         interval_km REAL, interval_days REAL, note TEXT)""")
     db.execute("CREATE TABLE IF NOT EXISTS vehicle (k TEXT PRIMARY KEY, v TEXT)")
+    records.migrate_days(db)
     db.execute("""CREATE TABLE IF NOT EXISTS modules (
         id TEXT PRIMARY KEY, name TEXT, addr TEXT, system TEXT,
         generic INTEGER, part TEXT, sw TEXT, codes TEXT, pos INTEGER)""")
@@ -628,6 +633,10 @@ def open_db():
 
 
 def seed(verbose=True):
+    # The simulated car has its own record. It used to share `telemetry.db`
+    # with whatever real vehicle had been plugged in, which is how a driver
+    # ends up looking at a fictional car's trouble codes.
+    records.use(garage.SIM_KEY)
     today = date.today()
     trips = year_of_trips(today)
     db = open_db()
@@ -657,7 +666,19 @@ def seed(verbose=True):
         km = d["km"] if d else 0.0
         odo += km
         litres = d["litres"] if d else 0.0
-        db.execute("INSERT OR REPLACE INTO days VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        # A year of health figures, not just driving. The fuel trim creeps up
+        # as the front oxygen sensor ages — which is a real thing that happens
+        # to a real car, is the cause behind two of the codes this car is
+        # holding, and is exactly the kind of slow drift a trend is for.
+        age = (DAYS_OF_HISTORY - i) / DAYS_OF_HISTORY
+        ltft = round(2.9 + 5.1 * age ** 1.6 + rng_for(
+            today - timedelta(days=i)).gauss(0, 0.35), 2) if km > 0.5 else None
+        coolant_max = round(88 + 6 * season_factor(today - timedelta(days=i))
+                            + rng_for(today - timedelta(days=i)).uniform(-2, 4), 1) \
+            if km > 0.5 else None
+        rpm_max = round(3200 + rng_for(today - timedelta(days=i)).uniform(0, 2600)) \
+            if km > 0.5 else None
+        db.execute("INSERT OR REPLACE INTO days VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                    (key, round(km, 2), round(litres, 3),
                     round(litres / km * 100.0, 2) if km > 0.5 else None,
                     d["moving_s"] if d else 0,
@@ -665,7 +686,8 @@ def seed(verbose=True):
                     d["idle_s"] if d else 0,
                     round(d["top_kph"], 1) if d else 0.0,
                     d["trips"] if d else 0,
-                    round(litres * FUEL_PRICE, 2), round(odo, 1)))
+                    round(litres * FUEL_PRICE, 2), round(odo, 1),
+                    ltft, coolant_max, rpm_max))
 
     for t in trips:
         db.execute("INSERT OR REPLACE INTO trips VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -930,6 +952,7 @@ def publish(payload):
 
 def run():
     """Publish live.json at 5 Hz and a sample a second, exactly as the daemon does."""
+    records.use(garage.SIM_KEY)
     with open(PIDFILE, "w", encoding="utf-8") as f:
         f.write(str(os.getpid()))
 

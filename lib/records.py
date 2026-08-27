@@ -14,13 +14,36 @@ import json
 import math
 import os
 import sqlite3
+import sys
 import time
 from datetime import datetime, timedelta
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import garage  # noqa: E402
+
 STATE = os.path.expanduser(
     os.environ.get("XDG_STATE_HOME", "~/.local/state") + "/omacar")
-DB = os.path.join(STATE, "telemetry.db")
+# One database per vehicle; see lib/garage.py for why. Resolved once at import
+# and re-resolved by use(), so anything holding a reference to this module
+# picks up a switch — and so the tests can still point it at a temp file.
+DB = garage.db_path()
 LIVE = os.path.join(STATE, "live.json")
+
+
+def use(key):
+    """Point every reader at another vehicle. Never call this while something
+    has the database open — see survey.prepare()."""
+    global DB
+    garage.set_current(key)
+    DB = garage.db_path()
+    return DB
+
+
+def refresh_db():
+    """Re-read the pointer, for a process that did not switch it itself."""
+    global DB
+    DB = garage.db_path()
+    return DB
 CONFIG = os.path.expanduser("~/.config/omarchy/liquid-glass-car.json")
 
 AFR_GASOLINE = 14.7
@@ -96,6 +119,39 @@ def connect():
         return db
     except sqlite3.Error:
         return None
+
+
+# Columns added to `days` after the table was first shipped. SQLite has no
+# "add if missing", and three copies of this loop in three modules is three
+# chances for one of them to be forgotten — which is how a reseed ends up
+# inserting fourteen values into an eleven-column table.
+DAYS_COLUMNS = (("ltft_mean", "REAL"), ("coolant_max", "REAL"),
+                ("rpm_max", "REAL"))
+
+
+def migrate_days(db):
+    """Bring an older `days` table up to date. Safe to call every time."""
+    try:
+        have = {r[1] for r in db.execute("PRAGMA table_info(days)")}
+    except sqlite3.Error:
+        return
+    if not have:
+        return
+    for name, kind in DAYS_COLUMNS:
+        if name not in have:
+            try:
+                db.execute(f"ALTER TABLE days ADD COLUMN {name} {kind}")
+            except sqlite3.OperationalError:
+                pass
+
+
+def connect_rw():
+    """A writable handle with the same row factory the read path uses. Every
+    helper here reads columns by name and fails on a plain connection."""
+    os.makedirs(os.path.dirname(DB), exist_ok=True)
+    db = sqlite3.connect(DB, timeout=10.0)
+    db.row_factory = sqlite3.Row
+    return db
 
 
 def has(db, table):
@@ -344,10 +400,16 @@ def live_days(db, since):
         return []
     try:
         raw = db.execute(
-            "SELECT t, speed, maf FROM samples WHERE t >= ? ORDER BY t ASC",
+            "SELECT t, speed, maf, ltft, coolant, rpm, "
+            "       CONTROL_VOLTS AS volts FROM samples WHERE t >= ? ORDER BY t ASC",
             (since,)).fetchall()
     except sqlite3.Error:
-        return []
+        try:
+            raw = db.execute(
+                "SELECT t, speed, maf, ltft, coolant, rpm FROM samples "
+                "WHERE t >= ? ORDER BY t ASC", (since,)).fetchall()
+        except sqlite3.Error:
+            return []
     if not raw:
         return []
 
@@ -361,7 +423,14 @@ def live_days(db, since):
         key = datetime.fromtimestamp(t).strftime("%Y-%m-%d")
         d = acc.setdefault(key, {"km": 0.0, "litres": 0.0, "moving_s": 0.0,
                                  "engine_s": 0.0, "idle_s": 0.0,
-                                 "top_kph": 0.0, "trips": 0, "open": True})
+                                 "top_kph": 0.0, "trips": 0, "open": True,
+                                 # The health figures. These are the ones the
+                                 # trend engine reads, and they have to
+                                 # survive compaction — a drift you can only
+                                 # see over months is exactly the drift worth
+                                 # seeing, and raw samples are gone by then.
+                                 "ltft_sum": 0.0, "ltft_n": 0,
+                                 "coolant_max": None, "rpm_max": 0.0})
         if gap:
             d["open"] = True
         if speed and speed > MOVING_KPH:
@@ -376,6 +445,17 @@ def live_days(db, since):
         d["engine_s"] += dt
         if maf and maf > 0:
             d["litres"] += (maf / AFR_GASOLINE) * dt / FUEL_DENSITY_G_PER_L
+        ltft = r["ltft"] if "ltft" in r.keys() else None
+        if ltft is not None:
+            d["ltft_sum"] += ltft
+            d["ltft_n"] += 1
+        coolant = r["coolant"] if "coolant" in r.keys() else None
+        if coolant is not None:
+            d["coolant_max"] = (coolant if d["coolant_max"] is None
+                                else max(d["coolant_max"], coolant))
+        rpm = r["rpm"] if "rpm" in r.keys() else None
+        if rpm:
+            d["rpm_max"] = max(d["rpm_max"], rpm)
         prev_t = t
 
     out = []
@@ -388,6 +468,11 @@ def live_days(db, since):
             "moving_s": int(d["moving_s"]), "engine_s": int(d["engine_s"]),
             "idle_s": int(d["idle_s"]), "top_kph": round(d["top_kph"], 1),
             "trips": d["trips"], "cost": None, "odo": None,
+            "ltft_mean": (round(d["ltft_sum"] / d["ltft_n"], 2)
+                          if d["ltft_n"] > 60 else None),
+            "coolant_max": (round(d["coolant_max"], 1)
+                            if d["coolant_max"] is not None else None),
+            "rpm_max": round(d["rpm_max"]) if d["rpm_max"] else None,
         })
     return out
 

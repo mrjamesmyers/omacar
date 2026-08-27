@@ -425,39 +425,160 @@ ok("a missing theme falls back rather than failing",
    theme_mod.palette("/nonexistent/colors.toml")["mode"] == "dark")
 
 
+# ---- the garage -------------------------------------------------------------
+head("The garage")
+
+import garage  # noqa: E402
+
+gtmp = tempfile.mkdtemp()
+g_state, g_garage, g_pointer, g_legacy = (
+    garage.STATE, garage.GARAGE, garage.POINTER, garage.LEGACY)
+garage.STATE = gtmp
+garage.GARAGE = os.path.join(gtmp, "vehicles")
+garage.POINTER = os.path.join(gtmp, "current-vehicle")
+garage.LEGACY = os.path.join(gtmp, "telemetry.db")
+
+ok("a VIN becomes a filename", garage.key_for("JHMZF1D64FS004917") == "JHMZF1D64FS004917")
+# A VIN is alphanumeric by definition, so anything else is punctuation
+# somebody typed — and keeping it would make two spellings into two cars.
+ok("punctuation is stripped out of it", garage.key_for("JH-MZ/F1 D6") == "JHMZF1D6")
+ok("something too short to be a VIN is not one", garage.key_for("AB") == "unknown")
+
+k1, new1 = garage.switch_to("JHMZF1D64FS004917")
+ok("switching to an unseen car says it is new", new1 is True)
+ok("...and it becomes current", garage.current() == k1)
+k2, new2 = garage.switch_to("WP0ZZZ99ZTS392124")
+ok("a second car gets its own key", k2 != k1)
+_, again = garage.switch_to("JHMZF1D64FS004917")
+ok("coming back to the first is not new", again is False)
+
+# The bug this whole module exists to prevent: one car's codes landing on
+# another car's record.
+ok("each car has its own database path", garage.path_for(k1) != garage.path_for(k2))
+
+garage.STATE, garage.GARAGE, garage.POINTER, garage.LEGACY = (
+    g_state, g_garage, g_pointer, g_legacy)
+shutil.rmtree(gtmp, ignore_errors=True)
+
+
+# ---- trends and concerns ----------------------------------------------------
+head("Trends")
+
+import concerns  # noqa: E402
+
+ok("a fit needs enough points", concerns.fit([(1, 1), (2, 2)]) is None)
+line = concerns.fit([(i, 2.0 * i + 5.0) for i in range(10)])
+ok("a straight line is found exactly",
+   abs(line[0] - 2.0) < 1e-9 and abs(line[1] - 5.0) < 1e-9)
+ok("...and reported as a perfect fit", abs(line[2] - 1.0) < 1e-9)
+noise = concerns.fit([(i, 5.0) for i in range(10)])
+ok("a flat line has no slope", abs(noise[0]) < 1e-9)
+
+ok("a projection reaches the limit where it should",
+   abs(concerns.project(1.0, 0.0, 110.0, 100.0) - 10.0) < 1e-9)
+ok("a line going the wrong way never arrives",
+   concerns.project(-1.0, 0.0, 110.0, 100.0) is None)
+ok("nor does one that arrives too far out to mean anything",
+   concerns.project(0.0001, 0.0, 110.0, 100.0) is None)
+ok("a projection past a year says so", concerns.when(500) == "a year or more out")
+ok("and one within weeks says that", concerns.when(10) == "within weeks")
+ok("no projection is not a date", concerns.when(None) == "beyond a year")
+
+
+# ---- photographs ------------------------------------------------------------
+head("Photographs")
+
+import photos  # noqa: E402
+
+JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+ok("a JPEG is recognised by its bytes", photos.sniff(JPEG)[0] == "jpg")
+ok("so is a PNG", photos.sniff(PNG)[0] == "png")
+# Never from a filename: an executable called photo.jpg is still an executable.
+ok("anything else is refused", photos.sniff(b"MZ\x90\x00rubbish")[0] is None)
+ok("a truncated WebP is not a WebP", photos.sniff(b"RIFFxxxxNOPE")[0] is None)
+
+ptmp = tempfile.mkdtemp()
+photos_root = photos.ROOT
+photos.ROOT = ptmp
+ok("a filename that climbs out resolves to nothing",
+   photos.path_of("../../../etc/passwd") is None)
+ok("...as does an absolute one", photos.path_of("/etc/passwd") is None)
+ok("and a name for a file that is not there", photos.path_of("nope.jpg") is None)
+photos.ROOT = photos_root
+shutil.rmtree(ptmp, ignore_errors=True)
+
+
 # ---- the survey's ordering contract -----------------------------------------
 head("Survey")
 
 import survey  # noqa: E402
 
+
+class FakeResponse:
+    def __init__(self, value):
+        self._v = value
+
+    def is_null(self):
+        return self._v is None
+
+    @property
+    def value(self):
+        return self._v
+
+
+class FakeConn:
+    """Just enough of a connection to answer a Mode 09 VIN query."""
+
+    def __init__(self, vin):
+        self.vin = vin
+
+    def query(self, cmd, force=False):
+        return FakeResponse(bytearray(self.vin.encode()) if self.vin else None)
+
+    def protocol_name(self):
+        return "ISO 15765-4 (CAN 11/500)"
+
+
+class FakeCommands:
+    VIN = object()
+
+
+class FakeObd:
+    commands = FakeCommands
+
+
 stmp = tempfile.mkdtemp()
-survey_real = records.DB
-records.DB = survey.records.DB = os.path.join(stmp, "s.db")
-sdb = sqlite3.connect(records.DB)
-sdb.execute("CREATE TABLE vehicle (k TEXT PRIMARY KEY, v TEXT)")
-sdb.execute("CREATE TABLE samples (t REAL PRIMARY KEY, speed REAL, maf REAL)")
-sdb.execute("INSERT INTO vehicle VALUES ('simulated', 'true')")
-sdb.commit()
-sdb.close()
+s_state, s_garage, s_pointer, s_legacy = (
+    garage.STATE, garage.GARAGE, garage.POINTER, garage.LEGACY)
+garage.STATE = stmp
+garage.GARAGE = os.path.join(stmp, "vehicles")
+garage.POINTER = os.path.join(stmp, "current-vehicle")
+garage.LEGACY = os.path.join(stmp, "telemetry.db")
+survey_real_db = records.DB
 
-ok("a simulated record is recognised", survey.stored_source() == "simulated")
-aside = survey.prepare()
-ok("...and set aside rather than written into", aside and os.path.exists(aside))
-ok("a fresh database takes its place", not os.path.exists(records.DB))
-ok("preparing again is a no-op", survey.prepare() is None)
+ok("no connection means no switching", survey.prepare(None) is None)
 
-# The bug this ordering exists to prevent: renaming the file under an already
-# open handle does not fail loudly — SQLite follows the inode and then refuses
-# the next write with "attempt to write a readonly database".
-sdb = sqlite3.connect(records.DB)
-sdb.execute("CREATE TABLE IF NOT EXISTS vehicle (k TEXT PRIMARY KEY, v TEXT)")
-sdb.execute("INSERT OR REPLACE INTO vehicle VALUES ('simulated', 'false')")
-sdb.commit()
-sdb.close()
-ok("a real record is left exactly where it is", survey.prepare() is None)
-ok("and is still there afterwards", os.path.exists(records.DB))
+out = survey.prepare(FakeConn("JHMZF1D64FS004917"), FakeObd)
+ok("a VIN picks the car", out and out[0] == "JHMZF1D64FS004917")
+ok("an unseen car is reported as new", out[1] is True)
+ok("...and the reader is pointed at it", garage.key_for("JHMZF1D64FS004917") in records.DB)
 
-records.DB = survey.records.DB = survey_real
+out = survey.prepare(FakeConn("JHMZF1D64FS004917"), FakeObd)
+ok("the same car again is not new", out[1] is False)
+
+out = survey.prepare(FakeConn("WP0ZZZ99ZTS392124"), FakeObd)
+ok("a different car switches records", out[0] == "WP0ZZZ99ZTS392124")
+
+# An adapter that will not give up a VIN keeps whatever record was current.
+# That is the best guess available and is at least stable.
+before = records.DB
+ok("no VIN leaves the record alone",
+   survey.prepare(FakeConn(None), FakeObd) is None and records.DB == before)
+
+garage.STATE, garage.GARAGE, garage.POINTER, garage.LEGACY = (
+    s_state, s_garage, s_pointer, s_legacy)
+records.DB = survey_real_db
 shutil.rmtree(stmp, ignore_errors=True)
 
 # VIN decoding, which is the only way this tool knows what car it is in.
