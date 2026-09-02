@@ -14,6 +14,7 @@
 #   omacar learn [--deep]     discover this car's modules and what they monitor
 #   omacar profile [cmd]      list, show, check, merge, promote, refute, correlate
 #   omacar candlog            log candidate PIDs against trusted channels
+#   omacar discover [status]  map identifiers automatically, safely, over time
 #   omacar write arm|disarm   allow writes (clear codes, tests, settings)
 #   omacar daemon start|stop|status
 #                             the polling daemon that feeds the cluster
@@ -479,6 +480,7 @@ case "${1:-open}" in
   dtc) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/dtc.py" "$@" ;;
   dtclog) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/dtclog.py" "$@" ;;
   candlog) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/candlog.py" "$@" ;;
+  discover) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/autodisc.py" "$@" ;;
   learn) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/discover.py" "$@" ;;
   write) shift; exec "$OMACAR_PY" "$ROOT/lib/write.py" "$@" ;;
   profile) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/profilecli.py" "$@" ;;
