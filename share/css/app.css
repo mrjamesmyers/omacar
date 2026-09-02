@@ -958,3 +958,49 @@ ul.tight li { margin-bottom: 5px; }
    and the whole screen becomes decoration. */
 .hub { position: relative; z-index: 1; }
 .stage { position: relative; }
+
+/* ---- replay ---- */
+.replay { display: grid; gap: 14px; }
+.rp-spans { display: grid; gap: 8px; margin-top: 12px;
+            grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.rp-span {
+  text-align: left; padding: 11px 13px; border-radius: var(--r);
+  border: 1px solid var(--edge); background: var(--panel);
+  color: var(--ink); font: inherit; cursor: pointer;
+}
+.rp-span:hover { background: var(--raise); }
+.rp-span.on { border-color: var(--info); background: var(--info-bg); }
+.rp-span-l { font-weight: 620; }
+.rp-span-d { font-size: .84rem; color: var(--dim); margin-top: 2px; }
+
+/* A tall grab area on a thin track: this gets scrubbed on a touchscreen. */
+.rp-slider {
+  width: 100%; height: 40px; margin-top: 12px;
+  -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer;
+}
+.rp-slider::-webkit-slider-runnable-track { height: 5px; border-radius: 3px; background: var(--track); }
+.rp-slider::-moz-range-track { height: 5px; border-radius: 3px; background: var(--track); }
+.rp-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 22px; height: 22px;
+  margin-top: -9px; border-radius: 50%; background: var(--ink); border: none;
+}
+.rp-slider::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: var(--ink); border: none; }
+
+.rp-time { text-align: right; font-family: var(--mono); }
+.rp-at { display: block; font-size: 1.1rem; color: var(--ink); }
+.rp-elapsed { display: block; font-size: .8rem; color: var(--dim); }
+.rp-canvas { width: 100%; display: block; margin-top: 10px; }
+
+.rp-grid { display: grid; gap: 8px; margin-top: 12px;
+           grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+.rp-cell {
+  padding: 9px 11px; border-radius: var(--r); text-align: left;
+  border: 1px solid var(--edge); background: var(--panel);
+  color: var(--ink); font: inherit; cursor: pointer;
+}
+.rp-cell.on { border-color: var(--info); }
+.rp-cell:hover { background: var(--raise); }
+.rp-k { font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+.rp-v { font-family: var(--mono); font-size: 1.3rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+.rp-u { font-size: .72rem; color: var(--dim); }
+.btn.sm.on { border-color: var(--info); color: var(--info); }

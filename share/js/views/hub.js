@@ -34,7 +34,7 @@ const SECONDARY = [
   { id: "tests", label: "Tests" }, { id: "concerns", label: "Trends" },
   { id: "service", label: "Service" }, { id: "history", label: "Log" },
   { id: "garage", label: "Garage" }, { id: "learn", label: "Learn" },
-  { id: "resets", label: "Resets" },
+  { id: "resets", label: "Resets" }, { id: "replay", label: "Replay" },
   { id: "report", label: "Report" },
 ];
 

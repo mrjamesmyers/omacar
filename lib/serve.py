@@ -128,6 +128,65 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if path == "/export.csv":
+            # Raw samples, out of the tool and into whatever you actually use.
+            #
+            # Streamed row by row rather than built in memory: a long drive is
+            # tens of thousands of rows, and this runs on a 2-core machine that
+            # is also polling a serial port. It is also UNDECIMATED, unlike
+            # /api/history -- that thins to fit a graph, which is right for a
+            # chart and wrong for an export somebody is going to analyse.
+            import csv
+            import io
+            import time
+            import records
+            from urllib.parse import parse_qs
+            q = parse_qs(query)
+            def num(name):
+                try:
+                    return float((q.get(name) or [""])[0])
+                except ValueError:
+                    return None
+            t0, t1 = num("from"), num("to")
+            db = records.connect()
+            rows = records.samples(db, since=t0, until=t1, limit=1000000) if db else []
+            # Connection: close is REQUIRED here, not tidiness.
+            #
+            # This streams, so it cannot send a Content-Length. Under HTTP/1.1
+            # keep-alive a body with neither Content-Length nor chunked
+            # encoding has no defined end, so the client waits for more bytes
+            # forever -- curl hung indefinitely on a export that had in fact
+            # been written in full. Closing the connection IS the terminator.
+            self.close_connection = True
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header("Content-Disposition",
+                             'attachment; filename="omacar-samples.csv"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            w.writerow(["iso"] + records.SAMPLE_COLS)
+            for r in rows:
+                vals = [r.get(c) if isinstance(r, dict) else r[i]
+                        for i, c in enumerate(records.SAMPLE_COLS)]
+                stamp = vals[0]
+                iso = ""
+                try:
+                    iso = time.strftime("%Y-%m-%dT%H:%M:%S",
+                                        time.localtime(float(stamp)))
+                except (TypeError, ValueError):
+                    pass
+                w.writerow([iso] + vals)
+                if buf.tell() > 32768:
+                    self.wfile.write(buf.getvalue().encode())
+                    buf.seek(0); buf.truncate(0)
+            self.wfile.write(buf.getvalue().encode())
+            if db:
+                db.close()
+            return
         if path.startswith("/photo/"):
             # Resolved through photos.path_of, which refuses anything that
             # climbs out of the folder. Never join a request path directly.

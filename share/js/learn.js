@@ -98,6 +98,15 @@ export const TOPICS = {
         + "warning lights. And the firmware-flashing services are absent from the "
         + "code entirely — not disabled, absent — so no bug can reach them.",
   },
+  replay: {
+    title: "Why replay matters more than live data",
+    body: "An intermittent fault is, by definition, not happening while you "
+        + "stare at the screen. OmaCar records every reading at about one per "
+        + "second whenever it is connected, and segments them into drives. "
+        + "Replay lets you scrub back to the exact second something changed "
+        + "and read every channel at that instant — which is the moment you "
+        + "actually needed to see, and the one you were driving through.",
+  },
   resets: {
     title: "Why the reset list may be empty",
     body: "Service resets are manufacturer-specific routines, and the "

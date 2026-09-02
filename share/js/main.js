@@ -13,6 +13,7 @@ import { learn } from "./learn.js";
 import { savedLook, applyLook } from "./looks.js";
 import { onboard, showOnboarding } from "./onboard.js";
 import hub from "./views/hub.js";
+import replayView from "./views/replay.js";
 import resetsView from "./views/resets.js";
 import learnView from "./views/learnview.js";
 import garageView from "./views/garage.js";
@@ -46,6 +47,7 @@ const VIEWS = [
   { id: "service", label: "Service", title: "Service schedule", mount: service },
   { id: "resets", label: "Resets", title: "Service resets and functional tests", mount: resetsView },
   { id: "history", label: "Log", title: "Drive history and records", mount: history },
+  { id: "replay", label: "Replay", title: "Replay a recorded drive", mount: replayView },
   { id: "garage", label: "Garage", title: "Every car you own", mount: garageView },
   { id: "learn", label: "Learn", title: "Learn the car, and the app", mount: learnView },
   { id: "report", label: "Report", title: "Vehicle report", mount: report },

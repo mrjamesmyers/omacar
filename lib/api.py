@@ -7,6 +7,7 @@ what the car said.
     GET  /api/snapshot          the whole car in one read
     GET  /api/live              the current sample
     GET  /api/history           samples over a span, decimated to fit a graph
+    GET  /api/trips             drives, newest first, for replay
     GET  /api/records           saved scans, recordings and advisor answers
     GET  /api/ai                poll an advisor job
     GET  /api/ai/history
@@ -505,6 +506,12 @@ def handle_get(path, query):
         if db:
             db.close()
         return 200, {"rows": series, "cols": records.SAMPLE_COLS}
+    if path == "/api/trips":
+        db = records.connect()
+        out = records.trips(db, qint(query, "n", 20, 1, 200)) if db else []
+        if db:
+            db.close()
+        return 200, {"trips": out}
     if path == "/api/records":
         db = records.connect()
         out = records.records(db, kind=qstr(query, "kind"),

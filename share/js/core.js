@@ -237,6 +237,7 @@ export const api = {
   snapshot: () => req("/api/snapshot"),
   live: () => req("/api/live"),
   history: (q) => req("/api/history?" + new URLSearchParams(q)),
+  trips: (n) => req("/api/trips?n=" + (n || 20)),
   records: (q) => req("/api/records?" + new URLSearchParams(q || {})),
   alerts: (n = 40) => req("/api/records?kind=alert&n=" + n),
   scan: () => req("/api/scan", { method: "POST" }),
