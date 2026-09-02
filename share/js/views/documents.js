@@ -162,7 +162,13 @@ export default function documents(root) {
             d.amount != null ? h("span.mono", money(d.amount)) : null,
             d.odometer != null ? h("span.mono", Math.round(d.odometer) + " mi") : null)),
         h("div.right.row.wrapline", { style: { gap: "8px" } },
-          h("a.btn.ghost", { href: "/doc/" + d.file, target: "_blank" }, "Open"),
+          h("a.btn.ghost", {
+            href: "/doc/" + d.file, target: "_blank",
+            // noopener: the opened page must not get a handle on this window.
+            // These are our own files, but a stored PDF is a document somebody
+            // else's phone produced, and the cost of being right here is zero.
+            rel: "noopener noreferrer",
+          }, "Open"),
           h("button.btn" + (ex ? ".ghost" : ""), {
             disabled: isBusy,
             onclick: () => parse(d),

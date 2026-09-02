@@ -166,7 +166,7 @@ export function photoStrip({ subject, subjectId, title = "Photographs" }) {
 export function thumb(p, onChange) {
   return h("figure.photo", { title: p.note || "" },
     h("img", { src: p.url, alt: p.note || "photograph", loading: "lazy",
-      onclick: () => window.open(p.url, "_blank") }),
+      onclick: () => window.open(p.url, "_blank", "noopener,noreferrer") }),
     h("figcaption",
       h("span", p.note || new Date(p.at * 1000).toLocaleString()),
       h("button", { title: "remove", onclick: async () => {

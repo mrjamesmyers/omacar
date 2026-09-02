@@ -41,6 +41,7 @@ one user and they are on the same machine.
 
 import json
 import os
+import re
 import sqlite3
 import sys
 import threading
@@ -853,9 +854,18 @@ def handle_post(path, body):
                 span = (float(span[0]), float(span[1]))
             else:
                 span = None
+            # A DTC has a known shape, and `code` arrives from the URL hash
+            # (#advisor/code:...) straight into a prompt template. The advisor
+            # has no tools and this is loopback-only, so the worst case is a
+            # steered answer rather than an action -- but an unconstrained
+            # string reaching a prompt is worth constraining when the value it
+            # is meant to hold is five characters of hex.
+            _code = (data.get("code") or "").strip().upper()
+            if _code and not re.fullmatch(r"[PBCU][0-9A-F]{4}(-[0-9A-F]{2})?", _code):
+                return 400, {"error": f"{_code!r} is not a diagnostic trouble code"}
             job = start_job(data.get("kind", "triage"),
                             question=data.get("question"),
-                            code=data.get("code"),
+                            code=_code or None,
                             refresh=bool(data.get("refresh")),
                             span=span)
         except Exception as e:                       # noqa: BLE001
