@@ -56,13 +56,24 @@ Item {
     duration: Math.max(220, Math.round(1000 / Math.max(0.15, root.spin)))
   }
 
+  // The scale that FITS the artwork in the box, and the offsets that centre it.
+  //
+  // It used to be `width / vb`, which is only right when the box already has
+  // the artwork's 3.3:1 shape. In the bar the button is square, so scaling by
+  // width drew the car at 30% of the available height -- correct arithmetic,
+  // tiny car. Fitting to whichever dimension runs out first, then centring,
+  // makes the icon as large as the box allows whatever shape the box is.
+  readonly property real k: Math.min(width / vb, height / inkH)
+  readonly property real offX: (width - vb * k) / 2
+  readonly property real offY: (height - inkH * k) / 2 - inkY * k
+
   // Body.
   Shape {
     id: body
     anchors.fill: parent
     antialiasing: true
-    readonly property real k: width / root.vb
-    transform: Translate { y: -root.inkY * body.k }
+    readonly property real k: root.k
+    transform: Translate { x: root.offX; y: root.offY }
     ShapePath {
       fillColor: root.tint
       strokeWidth: -1
@@ -85,14 +96,14 @@ Item {
       id: wheel
       anchors.fill: parent
       antialiasing: true
-      readonly property real k: width / root.vb
+      readonly property real k: root.k
       transform: [
         Rotation {
-          origin.x: modelData.cx * wheel.k
-          origin.y: modelData.cy * wheel.k - root.inkY * wheel.k
+          origin.x: modelData.cx * wheel.k + root.offX
+          origin.y: modelData.cy * wheel.k + root.offY
           angle: root.phase
         },
-        Translate { y: -root.inkY * wheel.k }
+        Translate { x: root.offX; y: root.offY }
       ]
       ShapePath {
         fillColor: root.tint

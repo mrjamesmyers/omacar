@@ -678,7 +678,11 @@ Panel {
           // ---- who, and what it is doing ----
           Item {
             width: column.width
-            height: heroCol.implicitHeight
+            // Tall enough for whichever is taller. The car is now bigger than
+            // the text beside it, and a container sized only to the text would
+            // clip it.
+            height: Math.max(heroCol.implicitHeight,
+                             root.connected ? heroWheel.height : startBtn.height)
 
             // The start button lives exactly where the wheel does, because the
             // wheel is meaningless when nothing is reading the car -- and two
@@ -688,6 +692,11 @@ Panel {
               id: startBtn
               visible: !root.connected
               anchors.top: parent.top
+              // Same corner as the car, for the reason the comment above gives.
+              // Neither had a horizontal anchor, so "the corner" they were
+              // sharing was the LEFT one, with stopBtn and the text column
+              // anchored to their left and therefore off the panel.
+              anchors.right: parent.right
               width: Style.space(40)
               height: width
               radius: width / 2
@@ -760,8 +769,19 @@ Panel {
               id: heroWheel
               visible: root.connected
               anchors.top: parent.top
-              width: Style.space(40)
-              height: width
+              // UPPER RIGHT, and big.
+              //
+              // It had no horizontal anchor at all, so it sat at x=0 while
+              // stopBtn and heroCol anchored themselves to its left -- which
+              // put them at negative x, off the panel. The corner the comment
+              // above startBtn talks about was never actually being used.
+              anchors.right: parent.right
+              // A proportion of the panel rather than a fixed size, so it stays
+              // the same relative weight whatever width the bar gives us.
+              width: Math.round(parent.width * 0.46)
+              // Derived from the artwork's own 3.3:1, not forced square. A
+              // square box would leave the coupe floating in empty space.
+              height: Math.round(width / heroWheel.aspect)
               tint: root.dim(root.engineOn ? 0.85 : 0.34)
               running: root.engineOn
               spin: root.state_ === "driving" ? 0.42 : 0
