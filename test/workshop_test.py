@@ -9,6 +9,8 @@ thing standing between a language model and a confident invention).
 """
 
 import json
+import re
+import pathlib
 import os
 import shutil
 import sys
@@ -773,6 +775,31 @@ ok("units can only be one of two things",
    api.handle_post("/api/units", '{"system":"furlongs"}')[0] == 400)
 ok("the advisor knows the new question kinds",
    {"symptom", "recording"} <= set(ai.SCHEMAS) == set(ai.PROMPTS))
+
+# ---- the panel must not re-implement staleness differently ------------------
+head("Panel freshness")
+
+_panel = pathlib.Path(__file__).resolve().parent.parent / "plugin" / "Panel.qml"
+_qml = _panel.read_text(encoding="utf-8")
+
+# The QML panel reads live.json directly rather than going through
+# records.live(), so it carries its own copy of the staleness rule. That is a
+# real duplication and it went wrong once: the panel had NO check at all, and
+# happily showed an 8.6-hour-old {"connected": true} as a live link -- green bar
+# icon, a Stop button, over an adapter that was not plugged in. This test is
+# here so the two numbers cannot drift apart again.
+_m = re.search(r"readonly property int liveStale:\s*(\d+)", _qml)
+ok("the panel declares a staleness window", _m is not None)
+ok("the panel's staleness window matches records.LIVE_STALE",
+   _m is not None and int(_m.group(1)) == records.LIVE_STALE)
+ok("the panel gates connected on freshness, not on the flag alone",
+   "root.liveFresh" in _qml
+   and re.search(r"property bool connected:.{0,200}?liveFresh", _qml, re.S) is not None)
+# A frozen clock is the other half of the same bug: freshness is measured
+# against nowSec, so the timer that advances it must not stop with the panel.
+ok("the clock keeps running while the panel is shut",
+   re.search(r"interval:\s*root\.opened \? 1000 : \d+", _qml) is not None)
+
 
 shutil.rmtree(tmp, ignore_errors=True)
 

@@ -127,8 +127,38 @@ Panel {
       "adapter": sample.kind, "port": sample.port, "trip": sample.trip
     }
   }
+  // How old the last published sample may be before it stops counting as live.
+  // Must track records.LIVE_STALE in lib/records.py -- the daemon publishes
+  // five times a second, so anything past a few seconds means whoever was
+  // writing has stopped.
+  readonly property int liveStale: 15
+
+  // A FILE ON DISK DOES NOT KNOW THE PROCESS WRITING IT HAS DIED.
+  //
+  // live.json is written while the daemon is connected and simply left behind
+  // when it is not. Unplugging the adapter and killing the daemon leaves
+  // {"connected": true, "port": "/dev/ttyUSB0"} on disk forever, and this
+  // panel read that as gospel: green bar icon, a Stop button, a "parked"
+  // state, all from a sample that was in one observed case 8.6 hours old with
+  // no /dev/ttyUSB0 on the machine at all.
+  //
+  // lib/records.py has had this guard since the beginning; the bug was that
+  // the panel reads live.json directly with `cat` and so never went through
+  // it. Duplicating the read meant duplicating the rule.
+  readonly property bool liveFresh: (sample.t || 0) > 0
+    && (root.nowSec - sample.t) <= root.liveStale
+
   readonly property bool connected: sample.connected !== undefined
-    ? sample.connected === true : car.connected === true
+    ? (sample.connected === true && root.liveFresh) : car.connected === true
+
+  // How long ago the daemon last said anything, for the panel to own up with.
+  readonly property int liveAge: (sample.t || 0) > 0 ? Math.max(0, Math.round(root.nowSec - sample.t)) : -1
+
+  // When the last sample CLAIMED a link but is too old to believe, say which.
+  // "offline" on its own cannot tell "nothing ever connected" from "the daemon
+  // stopped hours ago and left its claim on disk", and those want different
+  // things from the user.
+  readonly property string staleNote: (sample.connected === true && !root.liveFresh && root.liveAge > 0) ? "daemon stopped " + root.since(root.liveAge) : ""
   readonly property string state_: {
     if (!connected) return "offline"
     var s = live.speed || 0, r = live.rpm || 0
@@ -519,12 +549,20 @@ Panel {
     }
   }
 
-  // The live file is only worth reading while somebody is looking at it. The
-  // bar button needs to know whether the engine is running, which the rollup
-  // cache already says, so nothing is lost by standing this down.
+  // KEEPS TICKING WITH THE PANEL SHUT, and that is the point.
+  //
+  // This used to run only while the panel was open, on the reasoning that
+  // nobody is reading the live file otherwise. That stopped being true the
+  // moment the bar icon turned green on `connected`: freshness is measured
+  // against nowSec, so a frozen clock and a frozen sample meant the icon kept
+  // whatever colour it had when the panel closed -- green, forever, over an
+  // adapter that had been unplugged for hours.
+  //
+  // Slower when shut, because reading one small file every five seconds is
+  // cheap and being wrong in the bar is not.
   Timer {
-    interval: 1000
-    running: root.opened
+    interval: root.opened ? 1000 : 5000
+    running: true
     repeat: true
     triggeredOnStart: true
     onTriggered: {
@@ -1222,10 +1260,16 @@ Panel {
               // children a real width to elide and wrap against, which
               // `width: heroCol.width` was previously resolving circularly.
               anchors.left: parent.left
-              // Against the CAR now, not the Stop button. The button moved below
-              // the car, so anchoring the text to it would let the name run right
-              // underneath the artwork.
-              anchors.right: root.connected ? heroWheel.left : startBtn.left
+              // Against the BUTTON ROW, which is the widest thing on the right
+              // in both states -- wider than the car above it, and far wider
+              // than the lone Start button.
+              //
+              // Anchoring to the car (or to Start) only cleared the FIRST line.
+              // The status line sits level with the button row, so a column
+              // sized to the narrow thing above ran straight under "Open
+              // cluster" the moment that line had anything long to say. Sizing
+              // to the widest element clears every line at once.
+              anchors.right: heroBtns.left
               anchors.rightMargin: Style.space(10)
               spacing: Style.space(3)
 
@@ -1249,9 +1293,12 @@ Panel {
               }
 
               Row {
+                id: stateRow
                 spacing: Style.space(7)
+                width: heroCol.width
 
                 Rectangle {
+                  id: stateDot
                   width: Style.space(8); height: width; radius: width / 2
                   anchors.verticalCenter: parent.verticalCenter
                   color: root.state_ === "driving" ? root.cGreen
@@ -1261,8 +1308,13 @@ Panel {
 
                 Muted {
                   anchors.verticalCenter: parent.verticalCenter
+                  // Cut at the column edge. With no width this ran on under the
+                  // button row -- which only became visible once the line had
+                  // something long enough to say.
+                  width: stateRow.width - stateDot.width - stateRow.spacing
+                  elide: Text.ElideRight
                   text: {
-                    var bits = [root.state_]
+                    var bits = [root.staleNote || root.state_]
                     if (root.vehicle.trim) bits.push(root.vehicle.trim)
                     if (root.odometer) bits.push(root.grouped(root.uDist(root.odometer))
                                                  + " " + root.units.dist)
