@@ -461,6 +461,114 @@ textarea { resize: vertical; min-height: 66px; }
 .drive-tile-v.bad  { color: var(--bad); }
 .drive-tile-n { font-size: clamp(.6rem, 1.5vh, .85rem); color: var(--faint); }
 
+/* ---- gauges ----
+   Instrument faces for the readouts above. Every stroke is a token, so a dial
+   is green under Matrix and red-only under Night red without gauges.js knowing
+   either look exists.
+
+   The needle moves by transform and the arc by dash offset, both of which the
+   compositor animates on its own — there is no redraw loop behind any of this,
+   which is the whole reason these are SVG and not canvas. */
+.drive-hero-slot { display: block; }
+
+/* Width-driven, with the aspect of the cropped viewBox. Sizing by height made
+   the face fit to the shorter side and left a wide tile a third empty. */
+.g-svg {
+  display: block; width: 100%; height: auto; aspect-ratio: 84 / 88;
+  max-height: clamp(70px, 13.5vh, 156px); margin: 0 auto; overflow: visible;
+}
+/* Drive mode has to FIT. A speedometer at 44vh plus two rows of dials pushed
+   the exit button off the bottom and gave the one screen you read at seventy
+   miles an hour a scrollbar. These caps are what keeps hero + two rows +
+   footer + the exit inside one viewport. */
+.drive-hero-slot .g-svg { max-height: clamp(130px, 24vh, 300px); }
+
+.g-track      { stroke: var(--track); stroke-width: 2.6; stroke-linecap: round; }
+.g-arc-track  { stroke: var(--track); stroke-width: 7; stroke-linecap: round; }
+.g-arc-fill   { stroke: var(--accent); stroke-width: 7; stroke-linecap: round; }
+.g-band       { stroke-width: 3.4; stroke-linecap: butt; }
+.g-band-thin  { stroke-width: 2.2; }
+.g-band-warn  { stroke: var(--warn); opacity: .75; }
+.g-band-bad   { stroke: var(--bad); opacity: .85; }
+
+.g-tick-major { stroke: var(--dim); stroke-width: 1.5; stroke-linecap: round; }
+.g-tick-minor { stroke: var(--ghost); stroke-width: .8; stroke-linecap: round; }
+.g-num {
+  fill: var(--faint); font-size: 7px; text-anchor: middle;
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+}
+
+.g-needle { fill: var(--bright); }
+/* Nothing to point at is not the same as zero. A dead needle parks at the
+   start of the scale and says so by going the colour of disabled chrome —
+   otherwise a disconnected car reads as a car doing exactly 0. */
+.g-needle.g-dead { fill: var(--ghost); }
+.g-hub     { fill: var(--panel-2); stroke: var(--edge-2); stroke-width: 1.2; }
+.g-hub-pin { fill: var(--bright); }
+
+.g-value {
+  fill: var(--bright); font-size: 13px; font-weight: 600; text-anchor: middle;
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+}
+.g-value-big { font-size: 21px; }
+.g-unit {
+  fill: var(--faint); font-size: 6.5px; text-anchor: middle; letter-spacing: .18em;
+  font-family: var(--mono); text-transform: uppercase;
+}
+.g-svg[data-tone="warn"] .g-value { fill: var(--warn); }
+.g-svg[data-tone="bad"]  .g-value { fill: var(--bad); }
+.g-svg[data-tone="warn"] .g-arc-fill { stroke: var(--warn); }
+.g-svg[data-tone="bad"]  .g-arc-fill { stroke: var(--bad); }
+
+/* The one animation. .28s is long enough to read as a sweep and short enough
+   that the number and the needle never disagree for long. */
+.g-eased { transition: transform .28s cubic-bezier(.2, .8, .3, 1),
+                       stroke-dashoffset .28s cubic-bezier(.2, .8, .3, 1),
+                       left .28s cubic-bezier(.2, .8, .3, 1),
+                       width .28s cubic-bezier(.2, .8, .3, 1); }
+@media (prefers-reduced-motion: reduce) { .g-eased { transition: none; } }
+
+.g-bar { text-align: left; margin-top: .3em; }
+/* nowrap and a min-width of zero: "Engine oil" beside "9%" wrapped the unit
+   onto its own line and shoved the meter down out of the tile. */
+.g-bar-head { display: flex; align-items: baseline; gap: .4em; flex-wrap: nowrap; min-width: 0; }
+.g-bar-v {
+  font-size: clamp(1.6rem, 5.2vh, 3rem); font-weight: 600; line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+.g-bar-n {
+  font-size: clamp(.6rem, 1.5vh, .85rem); color: var(--faint);
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.g-bar[data-tone="warn"] .g-bar-v { color: var(--warn); }
+.g-bar[data-tone="bad"]  .g-bar-v { color: var(--bad); }
+.g-bar-track {
+  position: relative; height: 10px; border-radius: 5px; background: var(--track);
+  overflow: hidden; margin-top: .45em;
+}
+.g-bar-band { position: absolute; top: 0; bottom: 0; }
+.g-bar-band.g-band-warn { background: var(--warn); opacity: .35; }
+.g-bar-band.g-band-bad  { background: var(--bad); opacity: .45; }
+/* The reading sits above the bands: where it has reached matters more than
+   where the trouble starts. */
+.g-bar-fill {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 0;
+  border-radius: 5px; background: var(--bright);
+}
+/* The zero mark on a signed scale, so the anchor the fill grows from is
+   visible rather than implied. */
+.g-bar-zero {
+  position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px;
+  background: var(--ghost); z-index: 1;
+}
+.g-bar[data-tone="warn"] .g-bar-fill { background: var(--warn); }
+.g-bar[data-tone="bad"]  .g-bar-fill { background: var(--bad); }
+.g-bar-ends {
+  display: flex; justify-content: space-between; margin-top: .3em;
+  font-size: clamp(.5rem, 1.2vh, .7rem); color: var(--ghost);
+  font-variant-numeric: tabular-nums;
+}
+
 .drive-trip { text-align: center; color: var(--dim); font-size: clamp(.75rem, 1.8vh, 1.05rem); }
 
 /* One target, the width of a thumb and then some. */
@@ -516,11 +624,22 @@ textarea { resize: vertical; min-height: 66px; }
 .drive-pick button:disabled { opacity: .35; cursor: default; }
 .drive-chosen { display: flex; flex-wrap: wrap; gap: 8px; }
 .drive-chip {
-  display: flex; align-items: center; gap: 2px; background: var(--panel-2);
-  border: 1px solid var(--edge-2); border-radius: 10px; padding: 4px 4px 4px 12px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--edge-2); border-radius: 10px; padding: 4px 4px 6px 12px;
   font-size: .8rem;
 }
-.drive-chip > span { margin-right: 6px; }
+.drive-chip-top { display: flex; align-items: center; gap: 2px; }
+.drive-chip-top > span { margin-right: auto; padding-right: 8px; }
+.drive-kinds { display: flex; flex-wrap: wrap; gap: 4px; padding-right: 4px; }
+.drive-kinds button {
+  border: 1px solid var(--edge-2); background: transparent; color: var(--faint);
+  border-radius: 7px; padding: 5px 9px; font-size: .68rem; cursor: pointer;
+  letter-spacing: .04em;
+}
+.drive-kinds button[aria-pressed="true"] {
+  background: var(--raise); color: var(--ink); border-color: var(--faint);
+}
 .drive-chip button {
   border: 0; background: transparent; color: var(--faint); cursor: pointer;
   font-size: 1rem; line-height: 1; padding: 8px 9px; border-radius: 8px;
@@ -871,6 +990,100 @@ ul.tight li { margin-bottom: 5px; }
    and the whole screen becomes decoration. */
 .hub { position: relative; z-index: 1; }
 .stage { position: relative; }
+
+/* ---- themes ----
+   The manager. Note the preview: it applies the DERIVED palette to its own
+   subtree with inline properties, so looking at a theme is not the same as
+   wearing one. On :root it would repaint the editor you are working in,
+   including the controls you are reaching for. */
+.themes { display: grid; gap: 20px; max-width: 1100px; }
+/* wrap + flex:none on the button. Without both, a narrow window let the lede
+   take the whole row and squeezed "New theme" down to nothing -- present in
+   the DOM, zero pixels wide, and impossible to find. */
+.th-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap;
+}
+.th-head > div { min-width: 0; flex: 1 1 340px; }
+.th-head > .th-btn { flex: none; }
+.th-title { margin: 0; font-size: 1.4rem; }
+.th-lede { margin: 6px 0 0; color: var(--dim); max-width: 62ch; line-height: 1.55; }
+.th-empty { color: var(--faint); max-width: 62ch; line-height: 1.6; }
+
+.th-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+.th-card {
+  background: var(--panel); border: 1px solid var(--edge); border-radius: var(--r);
+  padding: 12px; display: grid; gap: 10px; align-content: start;
+}
+.th-card.is-active { border-color: var(--accent); }
+.th-card-name { font-weight: 600; }
+.th-card-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Nine bands of the derived palette: the surfaces, the ink, and every semantic
+   colour. Enough to tell two themes apart at a glance in the list. */
+.th-strip { display: flex; height: 30px; border-radius: 7px; overflow: hidden; border: 1px solid var(--edge); }
+.th-strip i { flex: 1; }
+
+.th-btn {
+  border: 1px solid var(--edge-2); background: transparent; color: var(--dim);
+  border-radius: 8px; padding: 7px 11px; font-size: .74rem; cursor: pointer;
+  font-family: var(--mono); letter-spacing: .04em;
+}
+.th-btn:hover:not(:disabled) { color: var(--ink); border-color: var(--faint); }
+.th-btn:disabled { opacity: .45; cursor: default; }
+.th-btn.primary { background: var(--raise); color: var(--ink); }
+.th-btn.danger:hover { color: var(--bad); border-color: var(--bad); }
+
+.th-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 900px) { .th-split { grid-template-columns: 1fr; } }
+
+.th-editor {
+  background: var(--panel); border: 1px solid var(--edge); border-radius: var(--r);
+  padding: 16px; display: grid; gap: 8px; align-content: start;
+}
+.th-k { font-size: .6rem; letter-spacing: .2em; color: var(--faint); text-transform: uppercase; margin-top: 6px; }
+.th-name {
+  background: var(--panel-2); border: 1px solid var(--edge-2); color: var(--ink);
+  border-radius: 8px; padding: 9px 11px; font-family: var(--mono); font-size: .92rem;
+}
+.th-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.th-field { display: grid; gap: 4px; }
+.th-field-k { font-size: .78rem; color: var(--ink); }
+.th-field-n { font-size: .64rem; color: var(--faint); line-height: 1.35; }
+.th-field-row { display: flex; gap: 6px; align-items: center; }
+/* A native colour input, stripped of its chrome so it reads as a swatch. */
+.th-dot {
+  -webkit-appearance: none; appearance: none; width: 34px; height: 30px; flex: none;
+  background: transparent; border: 1px solid var(--edge-2); border-radius: 7px;
+  padding: 2px; cursor: pointer;
+}
+.th-dot::-webkit-color-swatch-wrapper { padding: 0; }
+.th-dot::-webkit-color-swatch { border: none; border-radius: 5px; }
+.th-dot::-moz-color-swatch { border: none; border-radius: 5px; }
+.th-hex {
+  flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--edge-2);
+  color: var(--ink); border-radius: 7px; padding: 7px 8px; font-family: var(--mono);
+  font-size: .76rem;
+}
+.th-actions { display: flex; gap: 8px; margin-top: 12px; }
+
+.th-preview { border-radius: var(--r); border: 1px solid var(--edge); overflow: hidden; }
+.th-preview-in { background: var(--ground); color: var(--ink); padding: 18px; display: grid; gap: 14px; }
+.th-pv-title { font-size: 1.5rem; font-weight: 650; color: var(--bright); }
+.th-pv-sub { color: var(--faint); font-size: .8rem; margin-top: -10px; }
+.th-pv-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.th-pv-card { background: var(--panel); border: 1px solid var(--edge); border-radius: 10px; padding: 12px; }
+.th-pv-k { font-size: .58rem; letter-spacing: .2em; color: var(--faint); text-transform: uppercase; }
+.th-pv-v { font-size: 1.9rem; font-weight: 600; color: var(--bright); font-variant-numeric: tabular-nums; }
+.th-pv-n { font-size: .7rem; color: var(--dim); }
+.th-pv-pills { display: flex; flex-wrap: wrap; gap: 7px; }
+.th-pill { border-radius: 999px; padding: 4px 10px; font-size: .68rem; }
+.th-pill.ok { background: var(--ok-bg); color: var(--ok); }
+.th-pill.warn { background: var(--warn-bg); color: var(--warn); }
+.th-pill.bad { background: var(--bad-bg); color: var(--bad); }
+.th-pill.ai { background: var(--ai-bg); color: var(--ai); }
+.th-pill.info { background: var(--info-bg); color: var(--info); }
+.th-pv-note { font-size: .68rem; color: var(--faint); line-height: 1.5; }
 
 /* ============================================================ looks
    Palette swaps, applied by data-look on #app.

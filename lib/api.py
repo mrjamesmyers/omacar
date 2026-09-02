@@ -14,7 +14,9 @@ what the car said.
     GET  /api/records           saved scans, recordings and advisor answers
     GET  /api/ai                poll an advisor job
     GET  /api/ai/history
-    GET  /api/theme             the active Omarchy palette, mapped to our roles
+    GET  /api/theme             the active palette, mapped to our roles
+    GET  /api/themes            themes you have built, and which is active
+    POST /api/themes            save, delete or select one
     GET  /api/concerns          what is trending somewhere it should not
     GET  /api/snapshots         states captured by hand or by the watchdog
     GET  /api/vehicles          the garage
@@ -56,6 +58,7 @@ import garage   # noqa: E402
 import records  # noqa: E402
 import share    # noqa: E402
 import theme    # noqa: E402
+import themes   # noqa: E402
 
 try:
     import ai
@@ -342,8 +345,26 @@ DEFAULT_DRIVE = {
     # parked and unplugged leaves you looking at the codes rather than at a
     # dead gauge.
     "auto_return": True,
+    # How each readout is drawn: {tile id: kind}. Absent means "digital", so a
+    # layout written before gauges existed loads unchanged and looks the same.
+    "kinds": {},
+    "heroKind": "digital",
 }
 AUTO_MODES = ("off", "connect", "moving")
+
+# Kept in step with KINDS in share/js/gauges.js. Validated here rather than
+# trusted, for the same reason the tile count is: this file can be hand-edited,
+# and an unknown kind would reach the browser and render nothing at all in a
+# moving car. Anything unrecognised silently becomes a number, which is the one
+# rendering every readout can wear.
+GAUGE_KINDS = ("digital", "dial", "arc", "bar")
+
+
+def _clean_kinds(value):
+    if not isinstance(value, dict):
+        return {}
+    return {k: v for k, v in value.items()
+            if isinstance(k, str) and v in GAUGE_KINDS and v != "digital"}
 
 
 def drive_layout():
@@ -366,6 +387,13 @@ def drive_layout():
     if out.get("auto") not in AUTO_MODES:
         out["auto"] = DEFAULT_DRIVE["auto"]
     out["auto_return"] = bool(out.get("auto_return", True))
+    # A kind for a tile that is no longer on the screen is dead weight in the
+    # file and would come back the moment the tile did, which is not what
+    # removing it meant.
+    out["kinds"] = {k: v for k, v in _clean_kinds(out.get("kinds")).items()
+                    if k in out["tiles"]}
+    if out.get("heroKind") not in GAUGE_KINDS:
+        out["heroKind"] = "digital"
     return out
 
 
@@ -385,9 +413,14 @@ def save_drive_layout(data):
             cur["columns"] = max(1, min(4, int(data["columns"])))
         except (TypeError, ValueError):
             pass
+    if "kinds" in data:
+        cur["kinds"] = _clean_kinds(data.get("kinds"))
+    if data.get("heroKind") in GAUGE_KINDS:
+        cur["heroKind"] = data["heroKind"]
     cur["_comment"] = ("Drive-mode layout. Edit here or in the app: OmaCar → "
                        "Drive → Customise. Tile ids are listed in "
-                       "share/js/views/drive.js.")
+                       "share/js/views/drive.js; `kinds` maps a tile id to "
+                       "one of " + ", ".join(GAUGE_KINDS) + ".")
     os.makedirs(os.path.dirname(DRIVE_CFG), exist_ok=True)
     tmp = DRIVE_CFG + ".tmp"
     with open(tmp, "w") as f:
@@ -583,11 +616,38 @@ def handle_get(path, query):
     if path == "/api/theme":
         # The mtime rides along so the app can re-apply on a theme change
         # without re-parsing anything it already has.
+        #
+        # One endpoint whichever kind of theme is active: the browser asks what
+        # to wear and is told, and does not have to know that a theme can now
+        # come from two places.
+        src, stamp = themes.active()
+        if src is not None:
+            return 200, {"stamp": stamp, "custom": True,
+                         "vars": theme.palette_of(src)}
         try:
             stamp = int(os.path.getmtime(theme.THEME))
         except OSError:
             stamp = 0
-        return 200, {"stamp": stamp, "vars": theme.palette()}
+        return 200, {"stamp": stamp, "custom": False, "vars": theme.palette()}
+    if path == "/api/themes":
+        store = themes.load()
+        # Each theme ships with the palette it derives to, so the manager can
+        # show a true swatch of a theme it is not wearing. Deriving it in the
+        # browser would mean a second copy of the contrast rules.
+        out = []
+        for tid, body in sorted(store["themes"].items(),
+                                key=lambda kv: kv[1]["name"].lower()):
+            out.append({"id": tid, **body, "palette": theme.palette_of(body)})
+        return 200, {
+            "active": store["active"],
+            "desktop": themes.DESKTOP,
+            "themes": out,
+            "seed": themes.SEED,
+            "colours": list(themes.COLOURS),
+            # What the desktop's own theme derives to, for the swatch beside
+            # the "follow Omarchy" option.
+            "desktop_palette": theme.palette(),
+        }
     return None
 
 
@@ -606,6 +666,34 @@ def handle_post(path, body):
             return 400, {"error": "from and to (epoch seconds) required"}
     if path == "/api/drive":
         return 200, save_drive_layout(data)
+    if path == "/api/themes":
+        what = data.get("action")
+        if what == "preview":
+            # Derive without storing, so the editor can show a true palette
+            # while you drag a colour picker. The alternative was deriving in
+            # the browser, which means a second copy of every contrast rule --
+            # and the first time one was tuned the preview would start lying.
+            body = themes._clean("preview", data.get("theme") or {})
+            if not body:
+                return 400, {"error": "that is not a theme"}
+            return 200, {"palette": theme.palette_of(body)}
+        if what == "select":
+            store, err = themes.select(str(data.get("id") or themes.DESKTOP))
+        elif what == "delete":
+            store, err = themes.remove(str(data.get("id") or ""))
+        elif what == "save":
+            store, err = themes.put(str(data.get("id") or ""), data.get("theme") or {})
+        else:
+            return 400, {"error": "action must be save, delete or select"}
+        if err:
+            return 400, {"error": err}
+        out = [{"id": tid, **body, "palette": theme.palette_of(body)}
+               for tid, body in sorted(store["themes"].items(),
+                                       key=lambda kv: kv[1]["name"].lower())]
+        return 200, {"active": store["active"], "desktop": themes.DESKTOP,
+                     "themes": out, "seed": themes.SEED,
+                     "colours": list(themes.COLOURS),
+                     "desktop_palette": theme.palette()}
     if path == "/api/snapshot":
         return 200, concerns.capture(
             reason=data.get("reason") or "manual",

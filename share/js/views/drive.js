@@ -16,6 +16,7 @@
 
 import { h, clear, store, api, U, temp, econ, dist, vol, grouped, mins,
          since, toast } from "../core.js";
+import { KINDS, makeGauge, kindsFor, normaliseKind } from "../gauges.js";
 
 const ACK_KEY = "omacar.ackAlert";
 
@@ -28,11 +29,19 @@ const TILES = {
   speed: {
     label: "Speed", hero: true,
     get: (v) => ({ v: num(v.SPEED, (x) => Math.round(x * U.units.km)), n: U.units.speed }),
+    read: (v) => (raw(v.SPEED) === null ? null : raw(v.SPEED) * U.units.km),
+    scale: () => ({ min: 0, max: U.imperial ? 140 : 220, step: U.imperial ? 20 : 40 }),
   },
   rpm: {
     label: "Engine speed", hero: true,
     get: (v) => ({ v: num(v.RPM, (x) => grouped(x)), n: "rpm",
                    tone: v.RPM > 6200 ? "bad" : v.RPM > 5500 ? "warn" : "" }),
+    read: (v) => raw(v.RPM),
+    // Labelled in thousands, as every tachometer is.
+    scale: () => ({ min: 0, max: 7000, step: 1000,
+                    tick: (x) => String(Math.round(x / 1000)),
+                    bands: [{ from: 5500, to: 6200, tone: "warn" },
+                            { from: 6200, tone: "bad" }] }),
   },
   econ_now: {
     label: "Economy",
@@ -54,14 +63,22 @@ const TILES = {
     label: "Coolant",
     get: (v) => ({ v: num(v.COOLANT_TEMP, (x) => temp(x, false)), n: U.units.temp,
                    tone: v.COOLANT_TEMP > 105 ? "bad" : v.COOLANT_TEMP > 100 ? "warn" : "" }),
+    read: (v) => asTemp(v.COOLANT_TEMP),
+    scale: () => ({ min: asTemp(40), max: asTemp(120), step: U.imperial ? 40 : 20,
+                    bands: [{ from: asTemp(100), to: asTemp(105), tone: "warn" },
+                            { from: asTemp(105), tone: "bad" }] }),
   },
   intake: {
     label: "Intake air",
     get: (v) => ({ v: num(v.INTAKE_TEMP, (x) => temp(x, false)), n: U.units.temp }),
+    read: (v) => asTemp(v.INTAKE_TEMP),
+    scale: () => ({ min: asTemp(-10), max: asTemp(70), step: U.imperial ? 40 : 20 }),
   },
   ambient: {
     label: "Outside",
     get: (v) => ({ v: num(v.AMBIANT_AIR_TEMP, (x) => temp(x, false)), n: U.units.temp }),
+    read: (v) => asTemp(v.AMBIANT_AIR_TEMP),
+    scale: () => ({ min: asTemp(-20), max: asTemp(50), step: U.imperial ? 30 : 20 }),
   },
   volts: {
     label: "Battery",
@@ -71,6 +88,16 @@ const TILES = {
                tone: running && v.CONTROL_MODULE_VOLTAGE < 12.6 ? "bad"
                    : running && v.CONTROL_MODULE_VOLTAGE < 13.2 ? "warn" : "" };
     },
+    read: (v) => raw(v.CONTROL_MODULE_VOLTAGE),
+    // The bands are the figures that are low WHETHER OR NOT the engine is
+    // running. The tone above is the stricter, running-aware judgement; a
+    // painted band cannot know, and a face that shouts at a healthy parked
+    // battery is a face you learn to ignore.
+    // Step 2, not 1: seven labels round a face this small ran "12 13 14"
+    // together into one smear.
+    scale: () => ({ min: 10, max: 16, step: 2, tick: (x) => String(Math.round(x)),
+                    bands: [{ to: 11.8, tone: "bad" },
+                            { from: 11.8, to: 12.4, tone: "warn" }] }),
   },
   fuel: {
     label: "Fuel",
@@ -80,6 +107,9 @@ const TILES = {
         tank && v.FUEL_LEVEL ? `%  ·  ${vol(tank * v.FUEL_LEVEL / 100)}` : "%",
         tone: v.FUEL_LEVEL < 10 ? "bad" : v.FUEL_LEVEL < 18 ? "warn" : "" };
     },
+    read: (v) => raw(v.FUEL_LEVEL),
+    scale: () => ({ ...pct(), bands: [{ to: 10, tone: "bad" },
+                                      { from: 10, to: 18, tone: "warn" }] }),
   },
   range: {
     label: "Range",
@@ -97,28 +127,46 @@ const TILES = {
   load: {
     label: "Engine load",
     get: (v) => ({ v: num(v.ENGINE_LOAD, (x) => Math.round(x)), n: "%" }),
+    read: (v) => raw(v.ENGINE_LOAD),
+    scale: () => ({ ...pct(), bands: [{ from: 85, tone: "warn" }] }),
   },
   throttle: {
     label: "Throttle",
     get: (v) => ({ v: num(v.THROTTLE_POS, (x) => Math.round(x)), n: "%" }),
+    read: (v) => raw(v.THROTTLE_POS),
+    scale: () => pct(),
   },
   timing: {
     label: "Timing",
     get: (v) => ({ v: num(v.TIMING_ADVANCE, (x) => x.toFixed(0)), n: "°" }),
+    read: (v) => raw(v.TIMING_ADVANCE),
+    scale: () => ({ min: -10, max: 50, step: 10 }),
   },
   stft: {
     label: "Short trim",
     get: (v) => ({ v: num(v.SHORT_FUEL_TRIM_1, (x) => (x > 0 ? "+" : "") + x.toFixed(1)), n: "%",
                    tone: Math.abs(v.SHORT_FUEL_TRIM_1) > 15 ? "warn" : "" }),
+    read: (v) => raw(v.SHORT_FUEL_TRIM_1),
+    scale: () => ({ min: -25, max: 25, step: 10,
+                    tick: (x) => (x > 0 ? "+" : "") + Math.round(x),
+                    bands: [{ to: -15, tone: "bad" }, { from: -15, to: -10, tone: "warn" },
+                            { from: 10, to: 15, tone: "warn" }, { from: 15, tone: "bad" }] }),
   },
   ltft: {
     label: "Long trim",
     get: (v) => ({ v: num(v.LONG_FUEL_TRIM_1, (x) => (x > 0 ? "+" : "") + x.toFixed(1)), n: "%",
                    tone: Math.abs(v.LONG_FUEL_TRIM_1) > 15 ? "warn" : "" }),
+    read: (v) => raw(v.LONG_FUEL_TRIM_1),
+    scale: () => ({ min: -25, max: 25, step: 10,
+                    tick: (x) => (x > 0 ? "+" : "") + Math.round(x),
+                    bands: [{ to: -15, tone: "bad" }, { from: -15, to: -10, tone: "warn" },
+                            { from: 10, to: 15, tone: "warn" }, { from: 15, tone: "bad" }] }),
   },
   maf: {
     label: "Air flow",
     get: (v) => ({ v: num(v.MAF, (x) => x.toFixed(1)), n: "g/s" }),
+    read: (v) => raw(v.MAF),
+    scale: () => ({ min: 0, max: 120, step: 30 }),
   },
   today: {
     label: "Today",
@@ -145,6 +193,11 @@ const TILES = {
       return { v: Math.max(0, nx.life) + "%", n: nx.short || nx.item,
                tone: nx.life <= 0 ? "bad" : nx.life <= 15 ? "warn" : "" };
     },
+    read: (v, s, car) => {
+      const nx = car && car.service && car.service.next;
+      return nx ? Math.max(0, nx.life) : null;
+    },
+    scale: () => ({ ...pct(), bands: [{ to: 15, tone: "warn" }] }),
   },
 };
 
@@ -159,10 +212,25 @@ function num(x, fmt) {
   return x === null || x === undefined || Number.isNaN(x) ? "—" : String(fmt(x));
 }
 
+// ---------------------------------------------------------------- the scales
+//
+// `get` formats a reading for reading; `read` returns the same reading as a
+// NUMBER, and `scale` says what face to draw it on. A dial whose ticks say °F
+// has to be handed Fahrenheit, so read() converts exactly as get() does.
+//
+// scale is a function rather than an object because the units toggle at
+// runtime: a face built once at import would keep its mph ticks after you
+// switched to km/h. Readouts with no scale — the odometer, a fault count —
+// simply have none, and the editor then offers them only as numbers.
+const raw = (x) => (x === null || x === undefined || Number.isNaN(x) ? null : Number(x));
+const asTemp = (c) => (raw(c) === null ? null : U.imperial ? raw(c) * 9 / 5 + 32 : raw(c));
+const pct = () => ({ min: 0, max: 100, step: 25 });
+
 // ---------------------------------------------------------------- the view
 export default function drive(root, { arg } = {}) {
   let alive = true;
-  let layout = { hero: "speed", tiles: ["econ_now", "coolant", "volts"], columns: 3, footer: "trip" };
+  let layout = { hero: "speed", tiles: ["econ_now", "coolant", "volts"], columns: 3,
+                 footer: "trip", kinds: {}, heroKind: "digital" };
   let editing = false;
 
   root.parentElement.classList.add("drive-stage");
@@ -180,7 +248,10 @@ export default function drive(root, { arg } = {}) {
   const heroV = h("div.drive-speed", "—");
   const heroU = h("div.drive-unit", "");
   const stateEl = h("div.drive-state", "");
-  wrap.appendChild(h("div.drive-hero", heroV, heroU, stateEl));
+  // A slot rather than two fixed children: the big number is one rendering of
+  // the hero readout, and a dial is another.
+  const heroSlot = h("div.drive-hero-slot");
+  wrap.appendChild(h("div.drive-hero", heroSlot, stateEl));
 
   const row = h("div.drive-row");
   wrap.appendChild(row);
@@ -195,6 +266,18 @@ export default function drive(root, { arg } = {}) {
   wrap.appendChild(editor);
 
   let cells = [];
+  let heroGauge = null;
+
+  // A gauge wants a scale object; a readout carries a scale FUNCTION so it can
+  // follow the units toggle. Resolve it at build time, which is also when a
+  // unit change rebuilds.
+  function resolved(def) {
+    return def && def.scale ? { ...def, scale: def.scale() } : def;
+  }
+
+  function kindOf(id, def) {
+    return normaliseKind((layout.kinds || {})[id], def);
+  }
 
   function build() {
     clear(row);
@@ -203,12 +286,33 @@ export default function drive(root, { arg } = {}) {
     for (const id of layout.tiles) {
       const def = TILES[id];
       if (!def) continue;
-      const v = h("div.drive-tile-v", "—");
-      const n = h("div.drive-tile-n", "");
-      cells.push({ id, def, v, n });
-      row.appendChild(h("div.drive-tile", h("div.drive-tile-k", def.label), v, n));
+      const rdef = resolved(def);
+      const kind = kindOf(id, rdef);
+      const g = makeGauge(kind, rdef);
+      const tile = h("div.drive-tile", { data: { kind } },
+                     h("div.drive-tile-k", def.label));
+      tile.appendChild(g.el);
+      cells.push({ id, def, g });
+      row.appendChild(tile);
     }
+    buildHero();
     paint();
+  }
+
+  function buildHero() {
+    clear(heroSlot);
+    const def = TILES[layout.hero] || TILES.speed;
+    const rdef = resolved(def);
+    const kind = normaliseKind(layout.heroKind, rdef);
+    heroSlot.dataset.kind = kind;
+    if (kind === "digital") {
+      heroGauge = null;
+      heroSlot.appendChild(heroV);
+      heroSlot.appendChild(heroU);
+    } else {
+      heroGauge = makeGauge(kind, rdef);
+      heroSlot.appendChild(heroGauge.el);
+    }
   }
 
   function paintControls() {
@@ -232,18 +336,20 @@ export default function drive(root, { arg } = {}) {
 
     const hero = TILES[layout.hero] || TILES.speed;
     const hv = hero.get(v, s, car);
-    heroV.textContent = hv.v;
-    heroV.className = "drive-speed" + (hv.tone ? " " + hv.tone : "");
-    heroU.textContent = hv.n;
+    if (heroGauge) {
+      heroGauge.update(hv, hero.read ? hero.read(v, s, car) : null);
+    } else {
+      heroV.textContent = hv.v;
+      heroV.className = "drive-speed" + (hv.tone ? " " + hv.tone : "");
+      heroU.textContent = hv.n;
+    }
     stateEl.textContent = store.connected
       ? (moving ? "" : running ? "idling" : "parked") : "no link";
     wrap.dataset.state = store.connected ? (moving ? "driving" : "still") : "offline";
 
     for (const c of cells) {
       const out = c.def.get(v, s, car);
-      c.v.textContent = out.v;
-      c.n.textContent = out.n || "";
-      c.v.className = "drive-tile-v" + (out.tone ? " " + out.tone : "");
+      c.g.update(out, c.def.read ? c.def.read(v, s, car) : null);
     }
 
     tripEl.textContent = (FOOTERS[layout.footer] || FOOTERS.trip)(car);
@@ -252,6 +358,25 @@ export default function drive(root, { arg } = {}) {
   }
 
   // ---- the editor -------------------------------------------------------
+  //
+  // One row of gauge kinds, for the hero or for a chosen readout. Only the
+  // kinds the readout can actually wear: a fault count has no scale, so it is
+  // offered as a number and nothing else rather than as a needle with nowhere
+  // to point.
+  function kindRow(def, current, onPick) {
+    const allowed = kindsFor(def);
+    if (allowed.length < 2) return null;
+    const rowEl = h("div.drive-kinds");
+    for (const k of allowed) {
+      rowEl.appendChild(h("button", {
+        "aria-pressed": current === k ? "true" : "false",
+        title: KINDS[k].note,
+        onclick: () => onPick(k),
+      }, KINDS[k].label));
+    }
+    return rowEl;
+  }
+
   function paintEditor() {
     editor.hidden = !editing;
     if (!editing) return;
@@ -268,20 +393,38 @@ export default function drive(root, { arg } = {}) {
     }
     editor.appendChild(heroRow);
 
+    const heroDef = resolved(TILES[layout.hero] || TILES.speed);
+    const heroKinds = kindRow(heroDef, normaliseKind(layout.heroKind, heroDef), (k) => {
+      layout.heroKind = k;
+      save();
+    });
+    if (heroKinds) {
+      editor.appendChild(h("div.drive-editor-k", "Big number style"));
+      editor.appendChild(heroKinds);
+    }
+
     editor.appendChild(h("div.drive-editor-k",
       `Readouts  ·  ${layout.tiles.length} of 8`));
     const chosen = h("div.drive-chosen");
     layout.tiles.forEach((id, i) => {
       const def = TILES[id];
       if (!def) return;
-      chosen.appendChild(h("div.drive-chip",
-        h("span", def.label),
-        h("button", { title: "left", disabled: i === 0,
-          onclick: () => { swap(i, i - 1); } }, "‹"),
-        h("button", { title: "right", disabled: i === layout.tiles.length - 1,
-          onclick: () => { swap(i, i + 1); } }, "›"),
-        h("button", { title: "remove",
-          onclick: () => { layout.tiles.splice(i, 1); save(); } }, "×")));
+      const rdef = resolved(def);
+      const chip = h("div.drive-chip",
+        h("div.drive-chip-top",
+          h("span", def.label),
+          h("button", { title: "left", disabled: i === 0,
+            onclick: () => { swap(i, i - 1); } }, "‹"),
+          h("button", { title: "right", disabled: i === layout.tiles.length - 1,
+            onclick: () => { swap(i, i + 1); } }, "›"),
+          h("button", { title: "remove",
+            onclick: () => { layout.tiles.splice(i, 1); save(); } }, "×")));
+      const ks = kindRow(rdef, kindOf(id, rdef), (k) => {
+        layout.kinds = { ...(layout.kinds || {}), [id]: k };
+        save();
+      });
+      if (ks) chip.appendChild(ks);
+      chosen.appendChild(chip);
     });
     editor.appendChild(chosen);
 

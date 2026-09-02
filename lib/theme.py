@@ -116,34 +116,87 @@ def readable(colour, on, floor=3.4):
     return out
 
 
+# The colours a person actually chooses when building a theme.
+#
+# Everything else in the palette is DERIVED from these, through exactly the
+# same mapping an Omarchy theme goes through — which is the point. That
+# mapping is where the contrast floors live, where the surface steps come
+# from, and where --bright and --bright-2 get their glare margin. A theme
+# editor that wrote the twenty-nine output tokens directly would let you build
+# something beautiful and unreadable, and would need every one of those rules
+# reimplemented in the browser to stop you.
+#
+# Nine decisions instead of twenty-nine, and the result is legible by
+# construction.
+SOURCE_KEYS = ("mode", "background", "foreground", "accent",
+               "red", "green", "yellow", "blue", "magenta")
+
+
 def palette(path=THEME):
     """The app's CSS custom properties, derived from the active theme."""
-    t = read(path)
+    return palette_of(read(path))
+
+
+def palette_of(raw):
+    """The same, from a dict of theme colours rather than a file.
+
+    Split out so a theme built in the app and a theme installed on the desktop
+    take one code path. Two would have drifted the first time a contrast floor
+    was tuned.
+    """
+    raw = {k: v for k, v in (raw or {}).items() if v}
     src = dict(FALLBACK)
-    src.update({k: v for k, v in t.items() if v})
+    src.update(raw)
     light = (src.get("mode") or "dark").lower() == "light"
 
     fg = src.get("foreground") or FALLBACK["foreground"]
 
+    # WHOSE FALLBACK IS IT.
+    #
+    # FALLBACK is two things at once: the palette to use when there is no theme
+    # at all, and a source of default values for keys a theme omits. Those are
+    # not the same job, and conflating them broke custom themes: a theme that
+    # names a deep violet background and nothing else inherited FALLBACK's
+    # darker_background, so `ground` came out the stock teal and the app was
+    # violet cards floating on a green-black page.
+    #
+    # So: if a theme names the thing a step is derived FROM, it owns that step
+    # and any step it did not name is computed from its own colours. Only a
+    # theme that names nothing gets FALLBACK's steps wholesale.
+    def own(key, derive, anchor):
+        if key in raw:
+            return raw[key]
+        if anchor not in raw:
+            return src.get(key) or derive()
+        return derive()
+
     # Four surface steps. A dark theme goes down from its background and a
     # light one goes up, so the same four roles exist either way and every
     # layout rule in the app keeps working without knowing which it got.
+    # A theme that does not name its steps gets them DERIVED, not collapsed.
+    #
+    # `ground` used to fall back to `background`, which makes the page behind
+    # the app exactly the colour of the cards on it: every panel edge vanishes
+    # and the layout reads as one flat sheet. Every installed Omarchy theme
+    # names these, so nothing on the desktop changes — but a theme built in the
+    # app names only a background, and deriving the step is the difference
+    # between a designed palette and a smudge.
+    BLACK = "#000000"
+    panel = src.get("background")
     if light:
-        ground = src.get("dark_background") or src.get("background")
-        panel = src.get("background")
-        panel2 = src.get("lighter_background") or mix(panel, fg, 0.04)
+        ground = own("dark_background", lambda: mix(panel, BLACK, 0.06), "background")
+        panel2 = own("lighter_background", lambda: mix(panel, fg, 0.04), "background")
         raise_ = mix(panel, fg, 0.09)
     else:
-        ground = src.get("darker_background") or src.get("background")
-        panel = src.get("background")
-        panel2 = src.get("lighter_background") or mix(panel, fg, 0.05)
+        ground = own("darker_background", lambda: mix(panel, BLACK, 0.45), "background")
+        panel2 = own("lighter_background", lambda: mix(panel, fg, 0.05), "background")
         raise_ = mix(panel2, fg, 0.07)
 
     # Ink weights and rules are the foreground bled into the ground rather than
     # fixed greys, so they sit correctly on a warm theme and a cold one alike.
     ink = fg
-    dim = src.get("dark_foreground") or mix(fg, ground, 0.35)
-    faint = src.get("muted") or mix(fg, ground, 0.58)
+    dim = own("dark_foreground", lambda: mix(fg, ground, 0.35), "foreground")
+    faint = own("muted", lambda: mix(fg, ground, 0.58), "foreground")
     ghost = mix(fg, ground, 0.74)
 
     # THE INK WEIGHTS GET THE SAME CONTRAST FLOOR THE SEMANTIC COLOURS GET.

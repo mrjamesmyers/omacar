@@ -1018,6 +1018,147 @@ ok("the aurora renders into a small buffer, not the full canvas",
    and "drawImage(buf" in _fx)
 
 
+head("Gauges")
+
+_gauges = (_share / "js" / "gauges.js").read_text(encoding="utf-8")
+_drive = (_share / "js" / "views" / "drive.js").read_text(encoding="utf-8")
+api_src = (pathlib.Path(__file__).resolve().parent.parent / "lib" / "api.py"
+           ).read_text(encoding="utf-8")
+
+# The kinds the browser can draw and the kinds the server will store have to be
+# the same list. They live in two languages and drift silently: an unknown kind
+# reaching the browser renders NOTHING, in a moving car.
+_js_kinds = set(re.findall(r"^  ([a-z]+): \{$", 
+                re.search(r"export const KINDS = \{(.*?)\n\};", _gauges, re.S).group(1),
+                re.M))
+_py_kinds = set(re.findall(r'"([a-z]+)"',
+                re.search(r"GAUGE_KINDS = \((.*?)\)", api_src, re.S).group(1)))
+ok("the browser and the server agree on the gauge kinds", _js_kinds == _py_kinds)
+ok("digital is one of them", "digital" in _js_kinds)
+
+# Only readouts with a scale may wear a gauge; the rest can only be numbers.
+ok("a readout with no scale is offered nothing but a number",
+   "return def && def.scale ? KIND_IDS : [\"digital\"];" in _gauges)
+ok("an unrecognised kind falls back rather than rendering nothing",
+   "export function normaliseKind" in _gauges
+   and "allowed.includes(kind) ? kind : \"digital\"" in _gauges)
+
+# Every readout that declares a scale must also be able to produce a NUMBER for
+# it. A scale with no read() is a face with a needle that never moves.
+_scaled = set(re.findall(r"^  ([a-z_0-9]+): \{(?=(?:(?!^  [a-z_0-9]+: \{).)*?\n    scale:)",
+                         _drive, re.S | re.M))
+_readable = set(re.findall(r"^  ([a-z_0-9]+): \{(?=(?:(?!^  [a-z_0-9]+: \{).)*?\n    read:)",
+                           _drive, re.S | re.M))
+ok("several readouts carry a scale", len(_scaled) >= 10)
+ok("every scaled readout can also produce a raw number", _scaled.issubset(_readable))
+
+# The bands are spans, because trouble is not always at the top of the scale.
+ok("bands are spans rather than a single upper threshold",
+   "function bands(scale)" in _gauges and "b.from === undefined" in _gauges)
+ok("fuel trim marks trouble at both ends of its scale",
+   re.search(r"LONG_FUEL_TRIM_1.{0,400}?to: -15.{0,200}?from: 15", _drive, re.S) is not None)
+# A signed scale grows from zero. Filled from the left edge, a healthy +7.8%
+# trim drew a bar straight through the whole negative half and its warnings.
+ok("a signed bar anchors at zero", "const zeroT = scale.min < 0 && scale.max > 0" in _gauges)
+
+# The layout round-trips: a kind the server drops is a kind that silently
+# reverts the moment the editor saves.
+_drive_default = api.DEFAULT_DRIVE
+ok("the stored layout has somewhere to keep the kinds",
+   "kinds" in _drive_default and "heroKind" in _drive_default)
+_saved = api._clean_kinds({"speed": "dial", "rpm": "arc",
+                           "coolant": "nonsense", 7: "bar", "load": "digital"})
+ok("a kind that does not exist is dropped", "coolant" not in _saved)
+ok("a non-string tile id is dropped", 7 not in _saved)
+ok("the good ones survive", _saved == {"speed": "dial", "rpm": "arc"})
+
+
+head("The hub")
+
+# The hub used to rebuild its entire DOM -- title, vitals, the radio transport,
+# six tiles and every SVG icon in them -- inside a listener on `live`, which
+# fires every 250ms. Four times a second the whole screen was destroyed and
+# made again: that is what the blinking was, and it also meant the volume
+# slider could not be dragged, because the element under your finger stopped
+# existing.
+_hub = (_share / "js" / "views" / "hub.js").read_text(encoding="utf-8")
+ok("the live listener updates rather than rebuilds",
+   re.search(r'store\.on\("live",\s*update\)', _hub) is not None)
+ok("nothing removes the hub's children on a sample",
+   "n.remove()" not in _hub and "clear(root)" not in _hub)
+ok("a value is only written when it changed", "!== text" in _hub)
+ok("the radio is remounted on radio events, not on samples",
+   re.search(r"radio\.on\(remountRadio\)", _hub) is not None)
+
+head("Themes you build")
+
+import themes as themes_mod  # noqa: E402
+
+_thstore = os.path.join(tmp, "themes.json")
+_th_real = themes_mod.STORE
+themes_mod.STORE = _thstore
+
+VIOLET = {"name": "Violet", "mode": "dark", "background": "#141021",
+          "foreground": "#ede7ff", "accent": "#b48eff", "red": "#ff6b8a",
+          "green": "#6be39a", "yellow": "#ffc46b", "blue": "#7fb4ff",
+          "magenta": "#c98cff"}
+
+ok("nothing to start with", themes_mod.load()["themes"] == {})
+ok("and the desktop is what is worn", themes_mod.load()["active"] == themes_mod.DESKTOP)
+
+_store, _err = themes_mod.put("violet", VIOLET)
+ok("a theme can be saved", _err is None and "violet" in _store["themes"])
+ok("saving does not change what is worn", _store["active"] == themes_mod.DESKTOP)
+
+_store, _err = themes_mod.select("violet")
+ok("and then worn", _err is None and _store["active"] == "violet")
+_src, _stamp = themes_mod.active()
+ok("the active theme is handed back as source colours", _src["accent"] == "#b48eff")
+ok("with a stamp, so a running app notices", _stamp > 0)
+
+# THE POINT OF THE WHOLE DESIGN: nine colours in, a legible palette out.
+_p = theme_mod.palette_of(VIOLET)
+ok("a theme built from nine colours derives the whole palette",
+   all(k in _p for k in ("ground", "panel", "raise", "edge", "ink", "dim",
+                         "faint", "ghost", "bright", "bright-2", "ok", "bad")))
+# ground used to fall back to `background`, which makes the page behind the app
+# exactly the colour of the cards on it and erases every panel edge.
+ok("the ground is a real step below the panel", _p["ground"] != _p["panel"])
+ok("and it took the theme's own hue with it",
+   theme_mod.hex_to_rgb(_p["ground"])[2] > theme_mod.hex_to_rgb(_p["ground"])[1])
+# The floors apply to a home-made theme exactly as they do to an installed one.
+ok("body ink clears its floor", theme_mod.contrast(_p["faint"], _p["panel"]) >= 5.0)
+ok("in-car ink clears its floor", theme_mod.contrast(_p["bright"], _p["panel"]) >= 12)
+for _role in ("ok", "warn", "bad", "info", "ai"):
+    ok(f"{_role} is readable on a home-made panel",
+       theme_mod.contrast(_p[_role], _p["panel"]) >= 3.3)
+
+# A theme naming nothing must still be the app's own designed palette.
+ok("an empty theme falls back rather than deriving from nothing",
+   theme_mod.palette_of({})["ground"] == "#070B0D")
+ok("an installed theme is unaffected by any of this",
+   theme_mod.palette_of({"background": "#1a1b26", "darker_background": "#0e0e14",
+                         "foreground": "#c0caf5"})["ground"] == "#0e0e14")
+
+# Hand-edited nonsense must not reach the browser.
+_store, _err = themes_mod.put("BAD ID", VIOLET)
+ok("an id that is not a slug is refused", _err is not None)
+_bad = themes_mod._clean("x", {**VIOLET, "background": "not a colour", "mode": "sideways"})
+ok("a colour that is not a colour falls back to the seed",
+   _bad["background"] == themes_mod.SEED["background"])
+ok("a mode that is not a mode becomes dark", _bad["mode"] == "dark")
+
+# Deleting what you are wearing must leave you wearing something.
+themes_mod.select("violet")
+_store, _err = themes_mod.remove("violet")
+ok("deleting the active theme falls back to the desktop",
+   _store["active"] == themes_mod.DESKTOP)
+_src, _ = themes_mod.active()
+ok("and the app is told to follow the desktop again", _src is None)
+
+themes_mod.STORE = _th_real
+
+
 shutil.rmtree(tmp, ignore_errors=True)
 
 print(f"\n  {len(PASS)} passed, {len(FAIL)} failed\n")

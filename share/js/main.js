@@ -15,6 +15,7 @@ import { privacy, vinShort as maskVinShort, person, odo as maskOdo } from "./pri
 import { onboard, showOnboarding } from "./onboard.js";
 import hub from "./views/hub.js";
 import documentsView from "./views/documents.js";
+import themesView from "./views/themes.js";
 import replayView from "./views/replay.js";
 import resetsView from "./views/resets.js";
 import learnView from "./views/learnview.js";
@@ -51,6 +52,7 @@ const VIEWS = [
   { id: "history", label: "Log", title: "Drive history and records", mount: history },
   { id: "replay", label: "Replay", title: "Replay a recorded drive", mount: replayView },
   { id: "documents", label: "Docs", title: "Receipts, registrations and records", mount: documentsView },
+  { id: "themes", label: "Themes", title: "Build a palette of your own", mount: themesView },
   { id: "garage", label: "Garage", title: "Every car you own", mount: garageView },
   { id: "learn", label: "Learn", title: "Learn the car, and the app", mount: learnView },
   { id: "report", label: "Report", title: "Vehicle report", mount: report },
