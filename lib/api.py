@@ -7,6 +7,7 @@ what the car said.
     GET  /api/snapshot          the whole car in one read
     GET  /api/live              the current sample
     GET  /api/history           samples over a span, decimated to fit a graph
+    GET  /api/service-history   what has actually been done, newest first
     GET  /api/documents         the document library for this vehicle
     POST /api/document          add, update, remove or parse one
     GET  /api/trips             drives, newest first, for replay
@@ -542,6 +543,9 @@ def handle_get(path, query):
             subject=qstr(query, "subject"), subject_id=qstr(query, "id"))}
     if path == "/api/vehicles":
         return 200, {"vehicles": garage.vehicles(), "current": garage.current()}
+    if path == "/api/service-history":
+        import history
+        return 200, {"timeline": history.timeline(), "items": history.book_items()}
     if path == "/api/documents":
         import docs
         return 200, {"documents": docs.listing(qstr(query, "kind") or None),
@@ -688,6 +692,19 @@ def handle_post(path, body):
                     k: data.get(k) for k in
                     ("kind", "title", "vendor", "doc_date", "amount",
                      "odometer", "note", "tags") if k in data})}
+            if act == "propose":
+                import history
+                d = docs.get(data.get("id"))
+                if not d:
+                    return 404, {"error": "no such document"}
+                return 200, {"proposals": history.propose(d),
+                             "logged": history.already_logged(d["id"])}
+            if act == "log":
+                import history
+                return 200, {"written": history.apply(data.get("entries") or [])}
+            if act == "withdraw":
+                import history
+                return 200, {"ok": history.withdraw(data.get("entry_id"))}
             if act == "parse":
                 got, err = docs.parse(data.get("id"))
                 if err:

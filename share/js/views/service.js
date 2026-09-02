@@ -9,6 +9,47 @@
 import { h, store, api, toast, confirmDialog, dist, isoDate, grouped,
          lifeTone, U } from "../core.js";
 
+// The service history, from documents.
+//
+// The schedule answers "am I due". This answers "what has actually been done",
+// which is the question a buyer asks and the one the schedule cannot reach:
+// it only ever stored a last-done date, overwritten each time.
+//
+// Every entry names the document it came from and how the match was made,
+// because an entry somebody disagrees with has to be traceable to the page it
+// was read off.
+function historyCard(root) {
+  const box = h("section.card",
+    h("div.eyebrow", "From your documents"),
+    h("div.title", "Service history"),
+    h("p.lede", "Loading…"));
+  root.appendChild(box);
+
+  api.serviceHistory().then((r) => {
+    const rows = r.timeline || [];
+    while (box.firstChild) box.removeChild(box.firstChild);
+    box.appendChild(h("div.eyebrow", "From your documents"));
+    box.appendChild(h("div.title", "Service history"));
+    if (!rows.length) {
+      box.appendChild(h("p.lede",
+        "Nothing yet. Add a receipt under Docs, press “Read it”, and anything "
+        + "it says was done can be added here — which is also what makes the "
+        + "schedule above count from a real date rather than from nothing."));
+      return;
+    }
+    box.appendChild(h("div.svc-timeline", ...rows.map((e) => h("div.svc-entry",
+      h("span.svc-when", e.at ? isoDate(new Date(e.at * 1000).toISOString()) : "—"),
+      h("span.svc-item", e.item),
+      h("span.mono.svc-km", e.km ? dist(e.km) : ""),
+      h("span.svc-how",
+        e.source_doc ? `doc #${e.source_doc}` : "entered by hand",
+        e.confidence ? ` · ${e.confidence}` : "")))));
+  }).catch(() => {
+    while (box.firstChild) box.removeChild(box.firstChild);
+    box.appendChild(h("p.lede", "Could not read the service history."));
+  });
+}
+
 export default function service(root) {
   const car = store.car;
   const s = car && car.service;
@@ -21,6 +62,7 @@ export default function service(root) {
   // Neither the odometer nor the service history is on the car — see
   // lib/book.py — so both are edited here rather than only displayed.
   root.appendChild(odometerCard());
+  historyCard(root);
 
   if (!s) {
     root.appendChild(h("div.card",

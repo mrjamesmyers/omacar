@@ -1023,3 +1023,22 @@ ul.tight li { margin-bottom: 5px; }
 .doc-ex > summary { cursor: pointer; padding: 9px 12px; font-size: .9rem; color: var(--dim); }
 .doc-ex-body { padding: 0 12px 12px; }
 .doc-ex-body .lede.warn { color: var(--warn); }
+.doc-svc { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hair); }
+.svc-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px;
+           padding: 4px 0; font-size: .9rem; }
+.svc-band { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em;
+            padding: 2px 7px; border-radius: 999px; border: 1px solid var(--edge); }
+.svc-band.confident { color: var(--ok); border-color: var(--ok); }
+.svc-band.likely { color: var(--warn); border-color: var(--warn); }
+.svc-band.unmatched { color: var(--faint); }
+.svc-item { font-weight: 620; color: var(--ink); }
+.svc-src { color: var(--dim); font-style: italic; }
+.svc-how { color: var(--faint); font-size: .8rem; }
+.svc-timeline { display: grid; gap: 6px; margin-top: 12px; }
+.svc-entry { display: grid; grid-template-columns: 92px 1fr auto auto; gap: 12px;
+             align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--hair);
+             font-size: .93rem; }
+.svc-entry:last-child { border-bottom: 0; }
+.svc-when { color: var(--dim); font-family: var(--mono); font-size: .84rem; }
+.svc-km { color: var(--dim); }
+@media (max-width: 560px) { .svc-entry { grid-template-columns: 1fr; gap: 2px; } }

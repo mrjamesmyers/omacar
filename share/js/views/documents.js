@@ -31,6 +31,7 @@ export default function documents(root) {
   let totals = {};
   let filter = "";
   let busy = null;
+  let proposals = {};      // doc id -> what it says was done
 
   const wrap = h("div.docs");
   root.appendChild(wrap);
@@ -66,6 +67,32 @@ export default function documents(root) {
     reader.readAsDataURL(file);
   }
 
+  // Proposals, never writes. See lib/history.py on why matching is the
+  // dangerous part: a wrong match writes a maintenance record that is false.
+  async function propose(d) {
+    try {
+      const r = await api.document({ action: "propose", id: d.id });
+      proposals[d.id] = r;
+      draw();
+    } catch (e) {
+      toast(String(e.message || e), "bad");
+    }
+  }
+
+  async function logThem(d, entries) {
+    if (!entries.length) return;
+    try {
+      const r = await api.document({ action: "log", id: d.id, entries });
+      toast(r.written.length
+        ? `Logged: ${r.written.join(", ")}`
+        : "Already logged from this document.");
+      await propose(d);
+      await store.refreshCar();
+    } catch (e) {
+      toast(String(e.message || e), "bad");
+    }
+  }
+
   async function parse(d) {
     busy = d.id;
     draw();
@@ -76,6 +103,7 @@ export default function documents(root) {
         ? "The text was too poor to trust — nothing was filled in."
         : `Read it: ${got.title || "no title"}${got.amount ? " · $" + got.amount : ""}`);
       await load();
+      await propose(d);
     } catch (e) {
       toast(String(e.message || e), "bad");
     } finally {
@@ -159,6 +187,8 @@ export default function documents(root) {
             h("option", { value: k, selected: k === d.kind ? "" : null },
               KIND_LABEL[k] || k))))),
 
+      ex ? serviceBlock(d) : null,
+
       ex
         ? h("details.doc-ex",
             h("summary", `What the advisor read${ex._read_by ? " (" + ex._read_by + ")" : ""}`
@@ -177,6 +207,37 @@ export default function documents(root) {
               h("p.sub", "Extracted, not typed. Edit any field above to correct "
                 + "it — what you type is kept.")))
         : null);
+  }
+
+  // What this document says was done to the car, and whether it is in the
+  // history yet. Bands are shown, not hidden: "synonym" and "fuzzy 0.78" are
+  // different claims and the reader gets to weigh them.
+  function serviceBlock(d) {
+    const p = proposals[d.id];
+    if (!p) {
+      return h("div.doc-svc",
+        h("button.btn.ghost.sm", { onclick: () => propose(d) },
+          "What was done?"));
+    }
+    const logged = new Set((p.logged || []).map((l) => l.item));
+    const rows = p.proposals || [];
+    if (!rows.length) {
+      return h("div.doc-svc", h("span.sub", "No maintenance items in this document."));
+    }
+    const pending = rows.filter((r) => r.item && !logged.has(r.item));
+    return h("div.doc-svc",
+      h("div.eyebrow", "Work recorded on this document"),
+      ...rows.map((r) => h("div.svc-row",
+        h("span.svc-band." + r.band, r.band),
+        h("span.svc-item", r.item || "—"),
+        h("span.svc-src", `“${r.source_text}”`),
+        h("span.svc-how", r.how),
+        logged.has(r.item) ? h("span.pill.ok", "in history") : null)),
+      pending.length
+        ? h("button.btn.primary.sm", { style: { marginTop: "8px" },
+            onclick: () => logThem(d, pending) },
+            `Add ${pending.length} to the service history`)
+        : h("span.sub", "All of it is already in the history."));
   }
 
   function draw() {
