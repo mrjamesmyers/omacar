@@ -249,6 +249,68 @@ def cmd_migrate(arg, make=None, model=None, who=None):
     return 0
 
 
+def cmd_correlate(slug, apply_it=False, who=None):
+    """What the logged candidates track, and optionally act on it."""
+    import glob
+    import correlate as C
+    import candlog
+
+    paths = sorted(glob.glob(os.path.join(candlog.LOGDIR, f"{slug}-*.jsonl")))
+    if not paths:
+        print(f"\n  no candidate logs for {slug!r}.")
+        print(f"  Record some on a drive:  omacar candlog --profile {slug}\n")
+        return 1
+    rows = C.load_log(paths)
+    drives = C.split_drives(rows)
+    print(f"\n  {len(rows)} aligned sample(s) across {len(drives)} drive(s)")
+    print(f"  {DIM}from {len(paths)} log file(s){RESET}\n")
+
+    doc, path = _load_path(slug)
+    if not doc:
+        print(f"  no profile {slug!r}")
+        return 1
+    changed = 0
+    for p in doc.get("pid") or []:
+        if p.get("confidence") not in ("candidate", "observed"):
+            continue
+        verdict, alls = C.analyse(drives, p["id"])
+        v = verdict.get("verdict")
+        tone = {"tracks": GREEN, "ambiguous": YELLOW}.get(v, DIM)
+        print(f"  {tone}{v:<12}{RESET} {p['id']}")
+        print(f"    {DIM}{verdict.get('why','')}{RESET}")
+        if verdict.get("formula"):
+            print(f"    {verdict['decoding']}  ->  {verdict['formula']}"
+                  f"   {DIM}rmse {verdict.get('rmse')}{RESET}")
+        if v == "tracks" and apply_it:
+            # Promotion still records what it was checked against, exactly as
+            # a human promotion does -- the evidence here is a correlation over
+            # named drives, and it says so rather than just asserting.
+            import time
+            p["formula"] = verdict["formula"]
+            p["unit"] = ""
+            p["name"] = p.get("name") or f"tracks_{verdict['best']}"
+            p["confidence"] = "validated"
+            prov = p.setdefault("provenance", {})
+            prov["validated_by"] = who or "omacar correlate"
+            prov["validated_on"] = time.strftime("%Y-%m-%d")
+            prov["validated_against"] = (
+                f"{verdict['best']} (r={verdict['r']}, beating "
+                f"{verdict['runner_up']} by {verdict['margin']}) across "
+                f"{verdict['drives']} drives, {verdict['points']} samples")
+            changed += 1
+        print()
+    if apply_it and changed:
+        P.write(path, doc)
+        print(f"  {GREEN}promoted {changed} entr(ies){RESET}  {DIM}{path}{RESET}\n")
+    elif apply_it:
+        print(f"  nothing met the bar. {DIM}Drive more, or check the "
+              f"ambiguous ones by hand.{RESET}\n")
+    else:
+        print(f"  {DIM}Nothing was changed. Add --apply to promote what "
+              f"tracks.{RESET}\n")
+    return 0
+
+
 def main(argv):
     import argparse
     ap = argparse.ArgumentParser(prog="omacar profile", add_help=True)
@@ -263,6 +325,11 @@ def main(argv):
     s.add_argument("--against", required=True,
                    help="what you checked it against — a dash gauge, a second "
                         "tool, a physical change you made")
+    s.add_argument("--by")
+    s = sub.add_parser("correlate")
+    s.add_argument("profile")
+    s.add_argument("--apply", action="store_true",
+                   help="promote entries that clearly track a trusted channel")
     s.add_argument("--by")
     s = sub.add_parser("migrate")
     s.add_argument("profile"); s.add_argument("--make"); s.add_argument("--model")
@@ -281,6 +348,8 @@ def main(argv):
         return cmd_merge(args.base, args.incoming, args.out)
     if args.cmd == "promote":
         return cmd_promote(args.profile, args.id, args.against, args.by)
+    if args.cmd == "correlate":
+        return cmd_correlate(args.profile, args.apply, args.by)
     if args.cmd == "migrate":
         return cmd_migrate(args.profile, args.make, args.model, args.by)
     if args.cmd == "refute":
