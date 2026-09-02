@@ -97,10 +97,21 @@ Item {
       anchors.fill: parent
       antialiasing: true
       readonly property real k: root.k
+      // ORDER MATTERS, AND NOT THE WAY IT READS.
+      //
+      // Qt applies this list innermost-first, so a point goes through the
+      // Rotation BEFORE the Translate. The origin therefore has to be given in
+      // the untranslated path space -- `cx * k`, with no offset.
+      //
+      // Adding offX/offY here looked right and was catastrophic. offY is not a
+      // nudge: it carries the artwork's inkY, so at panel size it is about
+      // -132px. The wheels were being rotated about a point a third of a car
+      // above themselves, and the spokes swung up over the roof and off the
+      // top of the icon on every revolution.
       transform: [
         Rotation {
-          origin.x: modelData.cx * wheel.k + root.offX
-          origin.y: modelData.cy * wheel.k + root.offY
+          origin.x: modelData.cx * wheel.k
+          origin.y: modelData.cy * wheel.k
           angle: root.phase
         },
         Translate { x: root.offX; y: root.offY }

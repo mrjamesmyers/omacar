@@ -72,14 +72,38 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
             self.headers_already_secured = True
+        # STATIC FILES HAD NO Cache-Control AT ALL.
+        #
+        # The API sends no-store; SimpleHTTPRequestHandler sends only
+        # Last-Modified, and with no explicit policy a browser is free to
+        # HEURISTICALLY cache -- typically a tenth of the file's age. So an
+        # updated OmaCar served the OLD js modules to a tab that already had
+        # them, with no error and nothing to see: the app simply carried on
+        # running last week's code. That is a miserable thing to debug, and it
+        # cost an hour here before it was recognised as a caching problem
+        # rather than a broken change.
+        #
+        # no-cache, NOT no-store: the file may still be held, it just has to be
+        # revalidated. Every unchanged asset is a 304 with no body, so this is
+        # a correctness fix rather than a bandwidth cost.
+        if not self.cache_policy_sent:
+            self.send_header("Cache-Control", "no-cache")
+            self.cache_policy_sent = True
         super().end_headers()
 
     headers_already_secured = False
+    cache_policy_sent = False
+
+    def send_header(self, keyword, value):
+        if keyword.lower() == "cache-control":
+            self.cache_policy_sent = True
+        super().send_header(keyword, value)
 
     def send_response(self, *a, **kw):
         # Reset per response, since the handler instance is reused on a
         # keep-alive connection.
         self.headers_already_secured = False
+        self.cache_policy_sent = False
         super().send_response(*a, **kw)
 
     def do_HEAD(self):

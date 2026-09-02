@@ -236,6 +236,8 @@ class Watch:
         # about a repair that never happened.
         self.known_vin = self.state.get("vin")
         self.last_connected = None
+        # A link change that has not been believed yet: (state, first_seen).
+        self.link_pending = None
         self.trip = None
         # Compaction is a housekeeping job, not a rule. It lives here because
         # the watchdog is already the one process that is always awake, and a
@@ -262,7 +264,7 @@ class Watch:
         running = (values.get("RPM") or 0) > 200
         now = time.time() if now is None else now
 
-        self.link(connected, snap)
+        self.link(connected, snap, now)
         if connected:
             self.rules(values, running, now)
             self.trips(values, running, now)
@@ -276,13 +278,56 @@ class Watch:
             self.persist()
 
     # -- the adapter ---------------------------------------------------------
-    def link(self, connected, snap):
+    #
+    # How long a link change has to hold before anyone is told about it.
+    #
+    # Comfortably longer than a hand-off (a few seconds) and than the pause
+    # while the daemon re-opens the port (~1s), and short enough that a real
+    # unplug is reported while you are still standing next to the car.
+    LINK_SETTLE = 25.0
+
+    def link(self, connected, snap, now=None):
+        """File adapter come-and-go, but only when it is real.
+
+        TWO THINGS MADE THIS FLAP FOR A WHOLE DRIVE.
+
+        The daemon publishes connected=False with status="yielded" every time
+        it lends the adapter to a command -- the DTC sweep every five minutes,
+        a scan, a reset. That is a deliberate hand-off lasting seconds, and it
+        was filed as "The adapter is no longer answering", then "OmaCar is
+        watching" twenty seconds later, on repeat. Ten of those pairs in one
+        afternoon, none of them a real event.
+
+        And nothing waited to see whether a drop stuck. Even a genuine one-tick
+        blip -- a connector nudged over a bump -- became two notifications.
+
+        So: a hand-off is not a disconnection, and no change is believed until
+        it has held for LINK_SETTLE.
+        """
+        now = time.time() if now is None else now
+
+        # Lent, not lost. Not even recorded as a state change.
+        if snap.get("status") == "yielded" or snap.get("handover"):
+            self.link_pending = None
+            return
+
         if self.last_connected is None:
             self.last_connected = connected
+            self.link_pending = None
             return
         if connected == self.last_connected:
+            # Back to where it was before the timer ran out: nothing happened.
+            self.link_pending = None
             return
+
+        if self.link_pending is None or self.link_pending[0] != connected:
+            self.link_pending = (connected, now)
+            return
+        if now - self.link_pending[1] < self.LINK_SETTLE:
+            return
+
         self.last_connected = connected
+        self.link_pending = None
         if connected:
             name = snap.get("kind") or "adapter"
             self.raise_alert("link", "OmaCar is watching",

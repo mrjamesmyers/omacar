@@ -11,7 +11,7 @@ import { h, clear, icon, store, U, api, toast, dist, grouped, since } from "./co
 import { ICONS } from "./icons.js";
 import { learn } from "./learn.js";
 import { savedLook, applyLook } from "./looks.js";
-import { privacy, vin as maskVin, odo as maskOdo } from "./privacy.js";
+import { privacy, vinShort as maskVinShort, person, odo as maskOdo } from "./privacy.js";
 import { onboard, showOnboarding } from "./onboard.js";
 import hub from "./views/hub.js";
 import documentsView from "./views/documents.js";
@@ -194,6 +194,15 @@ function openMore(rest, anchor, badge) {
   if (first) first.focus();
 }
 
+// James -> James', Alex -> Alex's. Mirrors records.possessive() on the server;
+// the rule is small enough that sharing it across two languages would cost
+// more than stating it twice.
+function possessive(name) {
+  const n = String(name || "").trim();
+  if (!n) return "";
+  return n + (n.slice(-1).toLowerCase() === "s" ? "'" : "'s");
+}
+
 function paintBar() {
   const bar = document.getElementById("vbar");
   const car = store.car;
@@ -206,10 +215,23 @@ function paintBar() {
   const tone = state === "driving" ? "ok" : state === "idling" ? "warn"
     : state === "parked" ? "info" : "";
 
+  // WHOSE CAR, THEN WHAT CAR.
+  //
+  // The bar said "2015 Honda" -- which is neither. It did not name the model,
+  // because records.vehicle() was overwriting it, and it did not say whose car
+  // this is, which is the thing that actually matters in a household with two
+  // Hondas in it. "James' 2015 Honda CR-Z" answers both in one line.
+  //
+  // Composed here rather than taken from the server's `title` so the driver's
+  // name goes through the same privacy masking as everything else in the bar.
+  const v = car.vehicle || {};
+  const who = person(v.owner || v.driver || "");
+  const what = car.name || "Unknown vehicle";
+  const title = who ? `${possessive(who)} ${what}` : what;
+
   bar.appendChild(h("div.id",
-    h("div.name", car.name || "Unknown vehicle"),
-    h("div.sub", [car.vehicle && car.vehicle.trim, car.vehicle && car.vehicle.engine,
-                  maskVin(car.vehicle && car.vehicle.vin)].filter(Boolean).join("  ·  "))));
+    h("div.name", title),
+    h("div.sub", [v.trim, v.engine, maskVinShort(v.vin)].filter(Boolean).join("  ·  "))));
 
   bar.appendChild(h("div.spacer"));
 
@@ -327,17 +349,41 @@ export async function loadAuto() {
 // clothes — and when the theme changes, everything else on screen changes with
 // it and a tool that did not would look broken rather than distinctive.
 let themeStamp = -1;
+let themeSheet = null;
 
+// APPLIED AS A STYLESHEET, NOT AS INLINE PROPERTIES.
+//
+// This used to do root.style.setProperty() for every token. An inline style on
+// an element beats every rule in every stylesheet, so the theme silently
+// outranked the `:root[data-look="..."]` palettes -- and a look could only
+// change the four tokens the theme happens not to emit (--hair, --track, and
+// until now --bright/--bright-2). Matrix and Night-red repainted a couple of
+// meters and left the rail, the vehicle bar, the cards and the stage sitting
+// in the desktop theme, which is exactly what "the theme does not carry over
+// into the nav and top bar" looks like.
+//
+// A <style> appended after app.css gives the intended three-layer cascade:
+//   app.css :root      the shipped default        (0,1,0), first
+//   this sheet :root   the Omarchy theme          (0,1,0), later — wins
+//   app.css :root[..]  the look the user picked   (0,2,0) — wins over both
+// so an untouched app follows the desktop, and choosing a look overrides it
+// deliberately, which is the whole reason a look exists.
 async function applyTheme() {
   try {
     const { stamp, vars } = await api.theme();
     if (stamp === themeStamp) return;
     themeStamp = stamp;
     const root = document.documentElement;
-    for (const [k, v] of Object.entries(vars)) {
-      if (k === "mode") { root.style.colorScheme = v; continue; }
-      root.style.setProperty("--" + k, v);
+    if (!themeSheet) {
+      themeSheet = document.createElement("style");
+      themeSheet.id = "omarchy-theme";
+      document.head.appendChild(themeSheet);
     }
+    const decls = Object.entries(vars)
+      .filter(([k]) => k !== "mode")
+      .map(([k, v]) => `--${k}:${v}`)
+      .join(";");
+    themeSheet.textContent = `:root{color-scheme:${vars.mode || "dark"};${decls}}`;
     root.dataset.mode = vars.mode || "dark";
   } catch {
     // The stylesheet's own palette is the fallback, and it is the one the app

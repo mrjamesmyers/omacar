@@ -53,6 +53,25 @@ export function vin(value) {
   return v.slice(0, 3) + "•".repeat(v.length - 3);
 }
 
+// The vehicle bar's VIN, which is on screen every second the app is open.
+//
+// Privacy mode is opt-in and nobody remembers to arm it before the screenshot
+// they did not plan to take. A full seventeen-character VIN parked in the top
+// bar is therefore published by default, which is the wrong default for a
+// value whose whole purpose here is "am I looking at the right car".
+//
+// So the bar always masks the middle. The WMI still says Honda, the last four
+// still tell two cars in one household apart, and the eight characters in
+// between -- the ones that carry the serial and index a VIN lookup -- are not
+// on screen. Privacy mode still collapses this to the WMI alone, and the full
+// value is still one click away on the Now tab and in the garage.
+export function vinShort(value) {
+  if (privacy.on) return vin(value);
+  const v = String(value || "");
+  if (v.length < 8) return v;
+  return v.slice(0, 3) + "\u2022".repeat(v.length - 7) + v.slice(-4);
+}
+
 export function plate(value) {
   if (!privacy.on || !value) return value || "";
   return "•".repeat(Math.max(4, String(value).length));

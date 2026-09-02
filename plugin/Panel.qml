@@ -148,8 +148,22 @@ Panel {
   readonly property bool liveFresh: (sample.t || 0) > 0
     && (root.nowSec - sample.t) <= root.liveStale
 
+  // A HAND-OFF IS NOT A DISCONNECTION.
+  //
+  // Every few minutes the DTC sweep borrows the serial port, and the daemon
+  // steps aside and publishes connected=false with status="yielded" until it
+  // has it back. The cable never moved. Read literally, that turned the bar
+  // icon grey and swapped Stop for Connect for a few seconds out of every
+  // five minutes, all drive long -- the flicker that made the panel look like
+  // it kept losing the car.
+  //
+  // Still gated on freshness: a yield that never ends is a stopped daemon, and
+  // liveStale catches it on exactly the same schedule as a plain drop.
+  readonly property bool handover: sample.status === "yielded"
+
   readonly property bool connected: sample.connected !== undefined
-    ? (sample.connected === true && root.liveFresh) : car.connected === true
+    ? ((sample.connected === true || root.handover) && root.liveFresh)
+    : car.connected === true
 
   // How long ago the daemon last said anything, for the panel to own up with.
   readonly property int liveAge: (sample.t || 0) > 0 ? Math.max(0, Math.round(root.nowSec - sample.t)) : -1
@@ -600,6 +614,10 @@ Panel {
     // look like the panel had lost its contents.
     notifOpen = false
     if (!opened) return
+    // Rebuild the rollup as well as re-reading it. Reading alone is only ever
+    // as good as whoever last wrote the file, and for the panel's whole life
+    // that was nobody.
+    root.refreshNow()
     if (!loadCache.running) loadCache.running = true
     if (!loadLive.running) loadLive.running = true
     if (!loadDismissed.running) loadDismissed.running = true
@@ -611,8 +629,11 @@ Panel {
     act.command = args
     act.running = true
   }
+  // `liquid-glass-car` was never a command. Refresh has therefore never once
+  // refreshed anything, and the cache it reads was never written by anybody --
+  // which is why every vehicle field in this panel was blank.
   function refreshNow() {
-    run(["bash", "-c", "liquid-glass-car --quiet >/dev/null 2>&1"])
+    run(["bash", "-c", "omacar panel-cache --quiet >/dev/null 2>&1"])
     recheck.restart()
   }
   Timer { id: recheck; interval: 1200; onTriggered: if (!loadCache.running) loadCache.running = true }
@@ -1258,7 +1279,10 @@ Panel {
               SectionLabel { text: "OMACAR" }
 
               Text {
-                text: root.car.name || "No car"
+                // "James' 2015 Honda CR-Z" -- whose, and what. `name` alone
+                // said "2015 Honda" until records.vehicle() stopped throwing
+                // the model away.
+                text: root.car.title || root.car.name || "No car"
                 color: root.fg
                 font.family: root.bar.fontFamily
                 font.pixelSize: root.fTitle
@@ -1498,11 +1522,30 @@ Panel {
               spacing: Style.space(4)
               visible: root.engineOn
 
+              // Label left, reading right. Neither child was anchored, so both
+              // sat at x=0 and the throttle figure was printed straight over
+              // "ENGINE LOAD" -- two strings in one place, which is what the
+              // overlap in the panel actually was.
               Item {
                 width: parent.width
-                height: loadLabel.implicitHeight
-                SectionLabel { id: loadLabel; text: "ENGINE LOAD" }
+                height: Math.max(loadLabel.implicitHeight, loadValue.implicitHeight)
+
+                SectionLabel {
+                  id: loadLabel
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "ENGINE LOAD"
+                }
+
                 Muted {
+                  id: loadValue
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                  // Never wider than the space the label leaves.
+                  width: Math.min(implicitWidth,
+                                  parent.width - loadLabel.implicitWidth - Style.space(10))
+                  horizontalAlignment: Text.AlignRight
+                  elide: Text.ElideRight
                   text: Math.round(root.live.load || 0) + "%"
                     + (root.live.throttle !== undefined
                        ? "   ·   throttle " + Math.round(root.live.throttle) + "%" : "")

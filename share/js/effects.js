@@ -22,7 +22,7 @@
 //   - Draws behind content at low opacity: legibility wins every time.
 
 const KEY = "omacar.effect";
-export const EFFECTS = ["off", "matrix", "lasers"];
+export const EFFECTS = ["off", "matrix", "aurora"];
 
 export function savedEffect() {
   try {
@@ -69,9 +69,62 @@ export function mountEffect(host, mode) {
   const TAIL = tok("--ok", "#4ACE8A");
   const GROUND = tok("--ground", "#070B0D");
 
+  // The aurora's colours, also from tokens. Four semantic hues rather than a
+  // hardcoded palette, so the drift is blue-violet on the desktop theme, all
+  // greens under Matrix, and stays red-only under Night red -- where a stray
+  // blue in the background would undo the entire point of the look.
+  // Four DISTINCT roles. --accent and --info are the same value on plenty of
+  // themes (they are both #7aa2f7 on Tokyo Night), and two blobs of one colour
+  // is a two-colour gradient wearing a four-colour costume.
+  const WASH = [tok("--ai", "#8B7CF0"), tok("--info", "#4FA8E8"),
+                tok("--ok", "#4ACE8A"), tok("--warn", "#E5B457")];
+
+  function rgbOf(v, fb) {
+    const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec((v || "").trim());
+    if (!m) return fb;
+    let x = m[1];
+    if (x.length === 3) x = x.split("").map((c) => c + c).join("");
+    return [parseInt(x.slice(0, 2), 16), parseInt(x.slice(2, 4), 16),
+            parseInt(x.slice(4, 6), 16)];
+  }
+
+  // Push a colour away from grey without making it lighter.
+  //
+  // A theme's semantic colours are picked to be READ as text, so they sit at a
+  // sensible middle chroma. Added into a background at low alpha they arrive
+  // washed, and the instinct is to turn the alpha up -- which buys visibility
+  // with luminance, and luminance is the one thing the driving screen cannot
+  // spare. Chroma is nearly free by comparison: the eye reads a saturated
+  // violet as far more present than a pale one of the same brightness.
+  //
+  // So each channel is pushed away from the colour's own mean and the result
+  // is renormalised back to that mean. Hue is preserved, brightness is not
+  // raised, and only the colourfulness changes.
+  function saturate(rgb, k) {
+    const mean = (rgb[0] + rgb[1] + rgb[2]) / 3;
+    const out = rgb.map((c) => mean + (c - mean) * k);
+    // Renormalise: clipping a channel at 255 would otherwise drag the whole
+    // colour lighter and undo the point of doing this instead of raising alpha.
+    const m2 = (out[0] + out[1] + out[2]) / 3;
+    const fix = m2 > 0 ? mean / m2 : 1;
+    return out.map((c) => Math.max(0, Math.min(255, Math.round(c * fix))));
+  }
+
   const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-  let w = 0, h = 0, cols = 0, drops = [], beams = [];
+  let w = 0, h = 0, cols = 0, drops = [], blobs = [];
   const cell = 16;
+
+  // THE AURORA IS DRAWN SMALL AND BLOWN UP.
+  //
+  // Four soft radial fills at 3840x2160 is a fill-rate bill this machine has
+  // no business paying for a background. But the thing being drawn has no
+  // detail in it -- it is four blurs -- so it is rendered into a buffer a
+  // couple of hundred pixels across and scaled to fit. The bilinear upscale
+  // costs one blit and, on a field this smooth, IS the blur: the softness that
+  // would otherwise need a filter comes free with the interpolation.
+  const LOW = 160;
+  const buf = document.createElement("canvas");
+  const bctx = buf.getContext("2d", { alpha: false });
 
   function resize() {
     const r = host.getBoundingClientRect();
@@ -86,22 +139,54 @@ export function mountEffect(host, mode) {
     cols = Math.ceil(w / cell);
     drops = new Array(cols).fill(0).map(() => Math.random() * -40);
 
-    // Rays fan from points along a glowing emitter at the bottom edge. The
-    // first attempt used soft parallel columns, which read as light shafts
-    // rather than lasers -- a laser is a thin bright line with bloom around
-    // it, not a wide gradient. So: a crisp core, a tight glow, and an angle.
-    const n = Math.max(9, Math.min(30, Math.round(w / 62)));
-    beams = new Array(n).fill(0).map(() => ({
-      x: Math.random(),                       // origin along the emitter
-      angle: (Math.random() - 0.5) * 0.95,    // radians from vertical
-      sweep: (Math.random() - 0.5) * 0.28,    // how far it swings
-      speed: 0.18 + Math.random() * 0.55,
-      phase: Math.random() * Math.PI * 2,
-      len: 0.55 + Math.random() * 0.5,        // fraction of height
-      core: 0.7 + Math.random() * 1.5,        // core width in px
-      hueOff: Math.random() * 40,
-    }));
+    // The buffer keeps the viewport's shape so the blobs are not stretched.
+    const long = Math.max(w, h) || 1;
+    buf.width = Math.max(2, Math.round(LOW * w / long));
+    buf.height = Math.max(2, Math.round(LOW * h / long));
   }
+
+  // Four drifting fields, each on its own slow Lissajous path. Coprime-ish
+  // periods so the arrangement never visibly repeats -- a background that
+  // loops is a background you start watching, and this one has to stay
+  // ignorable for the length of a drive.
+  blobs = WASH.map((c, i) => ({
+    rgb: saturate(rgbOf(c, [90, 140, 220]), 1.55),
+    ax: 0.38 + i * 0.05,           // travel, as a fraction of the viewport
+    ay: 0.32 + ((i * 7) % 5) * 0.035,
+    sx: 0.047 + i * 0.011,         // radians a second: a full drift is ~2 min
+    sy: 0.031 + ((i * 3) % 4) * 0.009,
+    px: i * 1.7,
+    py: i * 2.3 + 0.6,
+    // Radius, as a fraction of the long edge. Deliberately smaller than the
+    // travel: four wide fields all overlapping everywhere sum to one flat
+    // wash, and adding a green to a warm additively makes olive, not aurora.
+    // Tighter blobs that move further keep their own colour, which is both
+    // prettier and cheaper -- less overlap is a lower peak for the same alpha.
+    r: 0.44 + ((i * 5) % 3) * 0.09,
+    // CORE ALPHA. THE ONE KNOB, AND WHAT IT COSTS.
+    //
+    // Turn this up to make the aurora more present. It is worth knowing what
+    // is being spent, because the field sits behind the driving screen, whose
+    // type is --bright on --ground and is read through a windscreen. Each step
+    // below was rendered and the brightest point of the field sampled:
+    //
+    //   alpha  peak pixel        --bright holds
+    //   0.12   rgb( 54, 53, 59)  11.8:1   too faint to be worth having
+    //   0.30   rgb( 77, 83, 66)   7.8:1
+    //   0.40   rgb(101,110, 85)   5.2:1   <- here
+    //
+    // 5.2:1 clears WCAG AA for normal text and the hub's type is neither
+    // normal nor small -- it is large and bold by design. What it gives up is
+    // glare margin: this is a brighter background than the sunlight-first
+    // version, chosen deliberately.
+    //
+    // Two things make that affordable. saturate() above buys visibility with
+    // chroma instead of luminance, and the radius is kept below the travel so
+    // the blobs mostly do not stack -- at 0.30 the untightened version peaked
+    // at rgb(112,110,117) for 4.9:1, WORSE than 0.40 is now while looking
+    // duller. Reach for those two before reaching for this number.
+    a: 0.40 - i * 0.045,
+  }));
 
   const ro = new ResizeObserver(resize);
   ro.observe(host);
@@ -145,68 +230,40 @@ export function mountEffect(host, mode) {
     }
   }
 
-  function lasers(now) {
-    ctx.clearRect(0, 0, w, h);
+  function aurora(now) {
     const t = (now - t0) / 1000;
-    // One hue for the whole field, drifting. Per-beam colour reads as confetti.
-    const hue = (t * 20) % 360;
-    ctx.globalCompositeOperation = "lighter";
-    ctx.lineCap = "round";
+    const bw = buf.width, bh = buf.height;
+    const long = Math.max(bw, bh);
 
-    for (const b of beams) {
-      const x0 = b.x * w;
-      const a = b.angle + Math.sin(t * b.speed + b.phase) * b.sweep;
-      const len = h * b.len;
-      const x1 = x0 + Math.sin(a) * len;
-      const y1 = h - Math.cos(a) * len;
-      const bh = (hue + b.hueOff) % 360;
+    // The ground first, opaque: this is a background, not a veil over one.
+    bctx.globalCompositeOperation = "source-over";
+    bctx.fillStyle = GROUND;
+    bctx.fillRect(0, 0, bw, bh);
 
-      // Three passes: wide bloom, mid glow, then a near-white core. That
-      // stacking is what makes a line look like it is EMITTING rather than
-      // just being a coloured stroke -- a single stroke at any width reads
-      // flat no matter how bright you make it.
-      const g = ctx.createLinearGradient(x0, h, x1, y1);
-      g.addColorStop(0, `hsla(${bh}, 100%, 62%, 0.55)`);
-      g.addColorStop(0.55, `hsla(${bh}, 100%, 60%, 0.16)`);
-      g.addColorStop(1, `hsla(${bh}, 100%, 60%, 0)`);
-
-      ctx.strokeStyle = g;
-      ctx.lineWidth = b.core * 7;
-      ctx.beginPath(); ctx.moveTo(x0, h); ctx.lineTo(x1, y1); ctx.stroke();
-
-      ctx.lineWidth = b.core * 2.4;
-      ctx.beginPath(); ctx.moveTo(x0, h); ctx.lineTo(x1, y1); ctx.stroke();
-
-      const core = ctx.createLinearGradient(x0, h, x1, y1);
-      core.addColorStop(0, `hsla(${bh}, 100%, 92%, 0.95)`);
-      core.addColorStop(0.7, `hsla(${bh}, 100%, 80%, 0.25)`);
-      core.addColorStop(1, `hsla(${bh}, 100%, 80%, 0)`);
-      ctx.strokeStyle = core;
-      ctx.lineWidth = b.core;
-      ctx.beginPath(); ctx.moveTo(x0, h); ctx.lineTo(x1, y1); ctx.stroke();
-
-      // The hot spot where the ray leaves the emitter.
-      const dot = ctx.createRadialGradient(x0, h, 0, x0, h, 26);
-      dot.addColorStop(0, `hsla(${bh}, 100%, 88%, 0.75)`);
-      dot.addColorStop(1, `hsla(${bh}, 100%, 70%, 0)`);
-      ctx.fillStyle = dot;
-      ctx.fillRect(x0 - 26, h - 26, 52, 26);
+    // Additive, so where two fields overlap they brighten into a third colour
+    // rather than one covering the other. That blending is the whole effect --
+    // painted normally these are four flat circles.
+    bctx.globalCompositeOperation = "lighter";
+    for (const b of blobs) {
+      const x = (0.5 + Math.sin(t * b.sx + b.px) * b.ax) * bw;
+      const y = (0.5 + Math.cos(t * b.sy + b.py) * b.ay) * bh;
+      const r = b.r * long;
+      const g = bctx.createRadialGradient(x, y, 0, x, y, r);
+      const [cr, cg, cb] = b.rgb;
+      g.addColorStop(0, `rgba(${cr}, ${cg}, ${cb}, ${b.a})`);
+      g.addColorStop(0.55, `rgba(${cr}, ${cg}, ${cb}, ${b.a * 0.32})`);
+      g.addColorStop(1, `rgba(${cr}, ${cg}, ${cb}, 0)`);
+      bctx.fillStyle = g;
+      bctx.fillRect(x - r, y - r, r * 2, r * 2);
     }
+    bctx.globalCompositeOperation = "source-over";
 
-    // The emitter itself: a bright line along the bottom with bloom above it,
-    // so the rays visibly come FROM something.
-    const bar = ctx.createLinearGradient(0, h, 0, h - 70);
-    bar.addColorStop(0, `hsla(${hue}, 100%, 66%, 0.42)`);
-    bar.addColorStop(1, `hsla(${hue}, 100%, 60%, 0)`);
-    ctx.fillStyle = bar;
-    ctx.fillRect(0, h - 70, w, 70);
-    ctx.fillStyle = `hsla(${hue}, 100%, 88%, 0.85)`;
-    ctx.fillRect(0, h - 2, w, 2);
-
-    ctx.globalCompositeOperation = "source-over";
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(buf, 0, 0, bw, bh, 0, 0, w, h);
   }
 
-  const draw = mode === "matrix" ? matrix : lasers;
+  const draw = mode === "matrix" ? matrix : aurora;
 
   function loop(now) {
     if (stopped) return;

@@ -99,6 +99,8 @@ def main():
 
     db = open_db()
     sample, tick, last_row = {}, 0, 0.0
+    # The last complete published sample, echoed back during a hand-off.
+    sample_snapshot = {}
     started = time.time()
 
     # The slow half of the car: codes, readiness, on-board tests, the VIN.
@@ -138,17 +140,48 @@ def main():
             return None
         return until
 
+    def yield_snapshot():
+        """What to publish while the adapter is lent out.
+
+        A HAND-OFF USED TO LOOK EXACTLY LIKE A DEAD DAEMON.
+
+        This published {"connected": false, "status": "yielded"} and nothing
+        else -- no `t`, no values. Every reader treats a sample with no
+        timestamp as stale and a sample with no values as an offline car, so
+        for the ten to twenty seconds of a DTC sweep the whole app decided the
+        link was gone: the bar icon went grey, Stop became Connect, a driving
+        car became "parked", and the watchdog filed an adapter-lost alert.
+        Then it all came back. Every five minutes, for the length of a drive.
+
+        The daemon is alive and the car is still on the other end of the cable,
+        so it keeps saying so -- with a current `t`, the last readings it took,
+        and a status that admits where the port went.
+        """
+        out = dict(sample_snapshot)
+        out.update({
+            "connected": False,
+            "status": "yielded",
+            "handover": True,
+            "port": port,
+            "t": time.time(),
+            "note": "a command is using the adapter",
+        })
+        return out
+
     def hand_over():
         """Close the port, wait for the lease to end, then take it back."""
         nonlocal conn, supported, cmds, db
-        publish({"connected": False, "status": "yielded", "port": port,
-                 "note": "a command is using the adapter"})
+        publish(yield_snapshot())
         try:
             conn.close()
         except Exception:                                     # noqa: BLE001
             pass
+        # Keep publishing through the wait. A lease can outlast the staleness
+        # window, and a hand-off that goes stale is indistinguishable from a
+        # daemon that died holding the port.
         while yielded_until():
             time.sleep(0.3)
+            publish(yield_snapshot())
         # Same courtesy in the other direction: the command has just closed the
         # port and the adapter is mid-teardown.
         time.sleep(0.6)
@@ -206,15 +239,18 @@ def main():
             eff, basis = telemetry.efficiency(sample)
             now = time.time()
 
-            publish({
+            live_payload = {
                 "connected": True, "port": port, "kind": kind,
                 "t": now, "uptime": now - started,
                 "protocol": conn.protocol_name(),
                 "supported": sorted(supported),
-                "values": sample,
+                "values": dict(sample),
                 "economy_lphk": lphk, "fuel_lph": lph,
                 "efficiency": eff, "efficiency_basis": basis,
-            })
+            }
+            sample_snapshot.clear()
+            sample_snapshot.update(live_payload)
+            publish(live_payload)
 
             if now - last_row >= 1.0:
                 db.execute(

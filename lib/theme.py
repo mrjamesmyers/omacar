@@ -211,11 +211,36 @@ def palette(path=THEME):
         rgb = hex_to_rgb(hexv) or (0, 0, 0)
         return "rgba(%d, %d, %d, %.3f)" % (rgb[0], rgb[1], rgb[2], alpha)
 
+    # THE IN-CAR INK, WHICH THE THEME NEVER REACHED.
+    #
+    # The hub -- the driving screen, its tiles, and the radio transport -- is
+    # painted entirely in --bright and --bright-2, on the rule that hierarchy
+    # in a moving vehicle comes from size and weight rather than from dimming
+    # (see the .hub block in app.css). Those two were the only tokens the
+    # stylesheet defined and this function did not emit, so they stayed at the
+    # hardcoded #FFFFFF/#C8D4D2 forever: every other surface followed the
+    # Omarchy theme and the entire car dashboard, radio play button included,
+    # did not.
+    #
+    # They are emitted here as the theme's own ink driven near the extreme,
+    # with contrast floors well above the rest of the app -- this is the screen
+    # read at a glance through a windscreen, so it keeps the glare margin it
+    # was designed with while still carrying the theme's hue.
+    # bright-2 is derived by pulling bright back TOWARD the surface, not by
+    # mixing less white into the ink. The ink has already been driven most of
+    # the way to white by the glare rules above, so "a bit less white" was a
+    # 15.1 against bright's 16.5 -- two tokens the eye cannot tell apart, and
+    # the hub's whole type hierarchy collapsed into one weight.
+    extreme = "#000000" if light else "#FFFFFF"
+    bright = readable(mix(ink, extreme, 0.85), panel, floor=13.0)
+    bright2 = readable(mix(bright, panel, 0.34), panel, floor=7.5)
+
     out = {
         "mode": "light" if light else "dark",
         "ground": ground, "panel": panel, "panel-2": panel2, "raise": raise_,
         "edge": edge, "edge-2": edge2,
         "ink": ink, "dim": dim, "faint": faint, "ghost": ghost,
+        "bright": bright, "bright-2": bright2,
         "accent": src.get("accent") or sem["info"],
     }
     for k, v in sem.items():

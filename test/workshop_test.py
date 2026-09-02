@@ -402,27 +402,76 @@ head("Theme")
 
 import theme as theme_mod  # noqa: E402
 
-THEMES = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                      "..", "..", "..", ".config", "omarchy", "themes")
-dark = theme_mod.palette(os.path.expanduser(
-    "~/.config/omarchy/themes/liquid-glass/colors.toml"))
-lightp = theme_mod.palette(os.path.expanduser(
-    "~/.config/omarchy/themes/liquid-glass-light/colors.toml"))
+# Themes live in the user's config when they have been customised and in
+# Omarchy's share directory otherwise. This used to name two liquid-glass paths
+# under ~/.config only; neither is installed here, so BOTH reads fell through to
+# FALLBACK -- which is dark. "a dark theme comes out dark" passed by accident
+# and "a light theme comes out light" could never pass at all. A test that
+# cannot pass teaches nothing, so find a real theme of each kind or say why not.
+THEME_DIRS = [os.path.expanduser("~/.config/omarchy/themes"),
+              "/usr/share/omarchy/themes"]
 
-ok("a dark theme comes out dark", dark["mode"] == "dark")
-ok("a light theme comes out light", lightp["mode"] == "light")
-ok("ink is legible on the panel, both ways",
-   theme_mod.contrast(dark["ink"], dark["panel"]) > 7
-   and theme_mod.contrast(lightp["ink"], lightp["panel"]) > 7)
-# The one that breaks silently: a theme's yellow is chosen for a terminal, not
-# for a panel, and an unreadable warning colour is worse than no colour.
-for name, p in (("dark", dark), ("light", lightp)):
-    for role in ("ok", "warn", "bad", "info", "ai"):
-        ok(f"{role} is readable on the {name} panel",
-           theme_mod.contrast(p[role], p["panel"]) >= 3.3)
-ok("badge text contrasts with its own badge",
-   all(theme_mod.contrast(p[r], p["on-" + r]) >= 3.5
-       for p in (dark, lightp) for r in ("ok", "warn", "bad", "info", "ai")))
+
+def find_theme(want_mode):
+    """A real installed theme of the given mode, or None."""
+    for d in THEME_DIRS:
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            continue
+        for n in names:
+            path = os.path.join(d, n, "colors.toml")
+            if not os.path.exists(path):
+                continue
+            raw = theme_mod.read(path)
+            if not raw:
+                continue
+            if (raw.get("mode") or "dark").lower() == want_mode:
+                return path
+    return None
+
+
+dark_path = find_theme("dark")
+light_path = find_theme("light")
+
+if not (dark_path and light_path):
+    print("   --    need one dark and one light theme installed; skipped")
+else:
+    dark = theme_mod.palette(dark_path)
+    lightp = theme_mod.palette(light_path)
+
+    ok("a dark theme comes out dark", dark["mode"] == "dark")
+    ok("a light theme comes out light", lightp["mode"] == "light")
+
+    # The in-car ink. The hub, its tiles and the radio transport are painted
+    # entirely in these two, and they were the only tokens app.css defined that
+    # palette() did not emit -- so the whole driving screen stayed hardcoded
+    # white whatever the desktop was wearing.
+    ok("the theme supplies the in-car ink the hub is painted in",
+       "bright" in dark and "bright-2" in dark)
+    ok("in-car ink inverts on a light theme",
+       theme_mod.luminance(lightp["bright"]) < theme_mod.luminance(lightp["panel"]))
+    # And they have to stay two weights, not two names for the same white.
+    for name, p in (("dark", dark), ("light", lightp)):
+        ok(f"bright and bright-2 are a real step apart on the {name} theme",
+           theme_mod.contrast(p["bright"], p["panel"])
+           > theme_mod.contrast(p["bright-2"], p["panel"]) * 1.3)
+        ok(f"in-car ink clears the glare floor on the {name} theme",
+           theme_mod.contrast(p["bright"], p["panel"]) >= 12
+           and theme_mod.contrast(p["bright-2"], p["panel"]) >= 7)
+
+    ok("ink is legible on the panel, both ways",
+       theme_mod.contrast(dark["ink"], dark["panel"]) > 7
+       and theme_mod.contrast(lightp["ink"], lightp["panel"]) > 7)
+    # The one that breaks silently: a theme's yellow is chosen for a terminal,
+    # not for a panel, and an unreadable warning colour is worse than none.
+    for name, p in (("dark", dark), ("light", lightp)):
+        for role in ("ok", "warn", "bad", "info", "ai"):
+            ok(f"{role} is readable on the {name} panel",
+               theme_mod.contrast(p[role], p["panel"]) >= 3.3)
+    ok("badge text contrasts with its own badge",
+       all(theme_mod.contrast(p[r], p["on-" + r]) >= 3.5
+           for p in (dark, lightp) for r in ("ok", "warn", "bad", "info", "ai")))
 ok("a missing theme falls back rather than failing",
    theme_mod.palette("/nonexistent/colors.toml")["mode"] == "dark")
 
@@ -799,6 +848,174 @@ ok("the panel gates connected on freshness, not on the flag alone",
 # against nowSec, so the timer that advances it must not stop with the panel.
 ok("the clock keeps running while the panel is shut",
    re.search(r"interval:\s*root\.opened \? 1000 : \d+", _qml) is not None)
+
+
+# The car in the bar and in the panel. The wheels are each a Shape rotated
+# about its own hub, and the rotation origin has to be given in the path space
+# the rotation is applied in -- BEFORE the Translate that lifts the artwork into
+# view. Adding the translate offsets to the origin looked right and rotated each
+# wheel about a point roughly a third of a car above itself, so the spokes swung
+# up over the roof and off the top of the icon once per revolution.
+head("The car")
+
+_car = (pathlib.Path(__file__).resolve().parent.parent / "plugin" / "Car.qml"
+        ).read_text(encoding="utf-8")
+_origin = re.search(r"Rotation\s*\{(.*?)\}", _car, re.S)
+ok("each wheel rotates about its own hub", _origin is not None)
+ok("the wheel's rotation origin carries no translate offset",
+   _origin is not None
+   and "offX" not in _origin.group(1) and "offY" not in _origin.group(1))
+ok("the artwork offsets are still applied, as a Translate",
+   "Translate { x: root.offX; y: root.offY }" in _car)
+
+
+head("The link")
+
+# A hand-off is not a disconnection. The daemon lends the serial port to the DTC
+# sweep every few minutes and publishes connected=false while it does; read
+# literally that turned a whole drive into a flapping link -- twenty "the
+# adapter is no longer answering" alerts in an afternoon, none of them real.
+import watch as watch_mod  # noqa: E402
+
+_alerts = []
+_w = watch_mod.Watch(quiet=True, persist=False, watch_faults=False,
+                     sink=_alerts)
+_w.last_connected = True
+
+_w.link(False, {"status": "yielded", "handover": True}, 1000.0)
+ok("a hand-off raises nothing", not _alerts)
+ok("a hand-off does not even count as a state change", _w.last_connected is True)
+
+# A blip: down at t, back up before the settle window closes.
+_w.link(False, {"status": "lost"}, 1001.0)
+_w.link(True, {"connected": True}, 1005.0)
+ok("a link that returns inside the settle window raises nothing", not _alerts)
+
+# A real drop: down, and still down past the window.
+_w.link(False, {"status": "lost"}, 2000.0)
+ok("a fresh drop is not announced immediately", not _alerts)
+_w.link(False, {"status": "lost"}, 2000.0 + watch_mod.Watch.LINK_SETTLE + 1)
+ok("a drop that holds is announced", len(_alerts) == 1)
+ok("and it is the adapter alert", bool(_alerts) and _alerts[0]["key"] == "link")
+ok("and it says the adapter stopped answering",
+   bool(_alerts) and "no longer answering" in _alerts[0]["body"])
+
+ok("records.live marks a hand-off as one", "handover" in records.live())
+
+
+head("Whose car")
+
+# `name` is the human's label for the car and the only field that carries the
+# model, because OBD-II does not report one. records.vehicle() used to
+# overwrite it with f"{year} {make} {model}" -- against a `model` key that has
+# never existed on any car -- so the model was destroyed to build "2015 Honda".
+_vdb = sqlite3.connect(":memory:")
+_vdb.row_factory = sqlite3.Row
+_vdb.execute("CREATE TABLE vehicle (k TEXT PRIMARY KEY, v TEXT)")
+for _k, _v in (("name", '"CR-Z"'), ("make", '"Honda"'), ("year", "2015"),
+               ("driver", '"James"')):
+    _vdb.execute("INSERT INTO vehicle (k, v) VALUES (?, ?)", (_k, _v))
+_veh = records.vehicle(_vdb)
+
+ok("the model survives", _veh["model"] == "CR-Z")
+ok("the name says what the car is", _veh["name"] == "2015 Honda CR-Z")
+ok("the title says whose it is", _veh["title"] == "James' 2015 Honda CR-Z")
+ok("the human's own label is still available to the garage editor",
+   _veh["label"] == "CR-Z")
+ok("a name ending in s takes a bare apostrophe",
+   records.possessive("James") == "James'")
+ok("any other name takes 's", records.possessive("Alex") == "Alex's")
+ok("no driver means no possessive", records.possessive("") == "")
+
+# A car with nothing but a label must not come out blank.
+_vdb2 = sqlite3.connect(":memory:")
+_vdb2.row_factory = sqlite3.Row
+_vdb2.execute("CREATE TABLE vehicle (k TEXT PRIMARY KEY, v TEXT)")
+_vdb2.execute("INSERT INTO vehicle (k, v) VALUES ('name', '\"the van\"')")
+ok("a car with only a label keeps it", records.vehicle(_vdb2)["name"] == "the van")
+
+# The panel's engine-load row. Both children were unanchored, so the throttle
+# reading printed on top of the words ENGINE LOAD.
+ok("the panel's engine-load row anchors its label and its reading apart",
+   re.search(r"SectionLabel \{\s*id: loadLabel.*?anchors\.left", _qml, re.S) is not None
+   and re.search(r"Muted \{\s*id: loadValue.*?anchors\.right", _qml, re.S) is not None)
+
+# THE PANEL'S ROLLUP HAD NO WRITER.
+#
+# Panel.qml reads ~/.local/state/omarchy/liquid-glass-car.json and refreshed it
+# by running `liquid-glass-car --quiet` -- a command that exists nowhere in this
+# repo and on nobody's PATH. So the file was never written, root.car was always
+# {}, and every vehicle field in the panel -- name, VIN, faults, service, trips,
+# odometer -- was permanently blank while the live gauges worked fine. The
+# panel said "No car" next to a car that was plainly driving.
+_refresh = re.search(r"function refreshNow\(\) \{(.*?)\n  \}", _qml, re.S)
+ok("the panel has a refresh", _refresh is not None)
+_cmd = _refresh.group(1) if _refresh else ""
+ok("the panel's refresh does not call a command that does not exist",
+   "liquid-glass-car" not in _cmd)
+_cli = (pathlib.Path(__file__).resolve().parent.parent / "bin" / "omacar"
+        ).read_text(encoding="utf-8")
+_sub = re.search(r"omacar (panel-cache)", _cmd)
+ok("the panel's refresh names an omacar subcommand", _sub is not None)
+ok("and the CLI actually has that subcommand",
+   _sub is not None and re.search(r"^\s*%s\)" % re.escape(_sub.group(1)),
+                                  _cli, re.M) is not None)
+ok("opening the panel rebuilds the rollup rather than only re-reading it",
+   re.search(r"onOpenedChanged:.{0,600}?root\.refreshNow\(\)", _qml, re.S) is not None)
+
+# The panel must not treat a hand-off as a lost car either.
+ok("the panel knows a hand-off from a disconnection",
+   "readonly property bool handover:" in _qml
+   and re.search(r"property bool connected:.{0,200}?handover", _qml, re.S) is not None)
+
+
+head("Serving")
+
+# Static assets carried no Cache-Control at all, so browsers fell back to
+# heuristic caching and an updated OmaCar kept running the old js modules in
+# any tab that already had them -- silently, with no error to notice.
+_serve = (pathlib.Path(__file__).resolve().parent.parent / "lib" / "serve.py"
+          ).read_text(encoding="utf-8")
+ok("static responses declare a cache policy",
+   re.search(r'send_header\("Cache-Control", "no-cache"\)', _serve) is not None)
+# Match the CALL, not the prose: the comment beside it explains the choice by
+# naming no-store, and the first version of this test read that and failed.
+_end = re.search(r"def end_headers.*?super\(\).end_headers\(\)", _serve, re.S).group(0)
+ok("it is no-cache, so unchanged assets still 304 rather than re-download",
+   re.findall(r'send_header\("Cache-Control", "([a-z-]+)"\)', _end) == ["no-cache"])
+ok("the API keeps its stricter no-store", '"Cache-Control", "no-store"' in _serve)
+# One header, not two: the API sets its own before end_headers runs.
+ok("a response that set its own policy is not given a second one",
+   "self.cache_policy_sent" in _serve
+   and re.search(r"def send_header.*?cache-control", _serve, re.S) is not None)
+
+head("Looks")
+
+_share = pathlib.Path(__file__).resolve().parent.parent / "share"
+_fx = (_share / "js" / "effects.js").read_text(encoding="utf-8")
+_looks = (_share / "js" / "looks.js").read_text(encoding="utf-8")
+
+ok("the lasers effect is gone from the effects module", "lasers" not in _fx)
+ok("and no look still asks for it", "laser" not in _looks)
+ok("nothing anywhere in the app still references it",
+   not any("laser" in (_share / "js" / f.name).read_text(encoding="utf-8")
+           for f in (_share / "js").glob("*.js")))
+
+# A look names an effect by string. Point one at an effect that does not exist
+# and nothing errors -- mountEffect just silently draws the other one, which is
+# how a look ends up wearing somebody else's animation.
+_effects = set(re.findall(r'"([a-z]+)"',
+               re.search(r"export const EFFECTS = \[(.*?)\]", _fx).group(1)))
+_want = set(re.findall(r"effect:\s*\"([a-z]+)\"", _looks))
+ok("the aurora is a real effect", "aurora" in _effects)
+ok("every look names an effect that exists", _want.issubset(_effects))
+ok("and every effect is reachable from some look", _effects.issubset(_want | {"off"}))
+
+# The aurora is drawn small and scaled up; if that buffer ever loses its cap
+# the effect quietly becomes a full-resolution fill on a 2-core laptop.
+ok("the aurora renders into a small buffer, not the full canvas",
+   re.search(r"const LOW = \d{2,3};", _fx) is not None
+   and "drawImage(buf" in _fx)
 
 
 shutil.rmtree(tmp, ignore_errors=True)

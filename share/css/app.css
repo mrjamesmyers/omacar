@@ -907,6 +907,13 @@ ul.tight li { margin-bottom: 5px; }
   --track:   #0E3A26;
   --bright:   #9CFFC4;   /* no white anywhere in this look */
   --bright-2: #46D189;
+  /* The tokens the desktop theme also emits. Without these a look overrode
+     half the palette and inherited the other half, which reads as a bug. */
+  --panel-2: #04170F;  --edge-2: #14472F;
+  --accent:  #4AFF9A;
+  --ai:      #5AFFD0;  --ai-bg: rgba(90,255,208,.12);
+  --on-ok:   #001008;  --on-warn: #0A1000; --on-bad: #180600;
+  --on-info: #001410;  --on-ai:  #001410;
 }
 
 :root[data-look="dim"] {
@@ -923,6 +930,11 @@ ul.tight li { margin-bottom: 5px; }
   --track:   #162126;
   --bright:   #A8B8B4;
   --bright-2: #6A7C78;
+  --panel-2: #0A1114;  --edge-2: #16232A;
+  --accent:  #35708F;
+  --ai:      #5B4F9A;  --ai-bg: rgba(91,79,154,.10);
+  --on-ok:   #05100A;  --on-warn: #100C05; --on-bad: #100504;
+  --on-info: #040C10;  --on-ai:  #08060F;
 }
 
 :root[data-look="red"] {
@@ -939,6 +951,14 @@ ul.tight li { margin-bottom: 5px; }
   --on-bad:  #1A0402; --on-warn: #1A0703; --on-ai: #16040A;
   --bright:   #FF9E88;   /* red-only: nothing here may be white */
   --bright-2: #C95644;
+  /* Red-only means red-only. --accent and --ai were inherited from the desktop
+     theme, so a blue focus ring and a purple AI badge survived on the one
+     screen whose entire purpose is that nothing short-wavelength reaches the
+     eye. */
+  --panel-2: #1A0505;  --edge-2: #4A1815;
+  --accent:  #FF7F68;
+  --ai:      #C95644;  --ai-bg: rgba(201,86,68,.12);
+  --on-ok:   #150402;  --on-info: #150402;
 }
 .radio-meta { flex: 1 1 auto; min-width: 0; }
 .radio-name, .radio-status {

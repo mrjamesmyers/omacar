@@ -207,6 +207,18 @@ def live():
             "protocol": snap.get("protocol"),
             "values": {},
         }
+    # A HAND-OFF IS NOT A DISCONNECTION.
+    #
+    # The daemon publishes connected=False, status="yielded" for the few
+    # seconds it lends the serial port to a command -- the DTC sweep, a scan, a
+    # reset. The cable is in, the car is answering, and nobody has lost
+    # anything; the daemon has simply stepped out of the way.
+    #
+    # Every consumer read that as the adapter dying, so a drive spent five
+    # minutes connected and a few seconds "disconnected", forever. `handover`
+    # lets a caller tell the two apart without having to know the daemon's
+    # status vocabulary.
+    snap["handover"] = snap.get("status") == "yielded"
     return snap
 
 
@@ -223,6 +235,18 @@ def status(snap):
 
 # ---- the car ----------------------------------------------------------------
 
+def possessive(name):
+    """James -> James', Alex -> Alex's.
+
+    The trailing-s rule rather than always "'s", because the one name this was
+    written for is James and "James's car" is not what its owner writes.
+    """
+    n = (name or "").strip()
+    if not n:
+        return ""
+    return n + ("'" if n[-1].lower() == "s" else "'s")
+
+
 def vehicle(db):
     out = {}
     for r in rows(db, "SELECT k, v FROM vehicle", table="vehicle"):
@@ -230,9 +254,39 @@ def vehicle(db):
             out[r["k"]] = json.loads(r["v"])
         except (ValueError, TypeError):
             out[r["k"]] = r["v"]
-    if out:
-        out["name"] = (f"{out.get('year', '')} {out.get('make', '')} "
-                       f"{out.get('model', '')}").strip()
+    if not out:
+        return out
+
+    # `name` is the human's own label, and the garage screen documents it as
+    # "what to call it, since OBD-II cannot tell us the model". On this car it
+    # holds "CR-Z".
+    #
+    # THIS USED TO DESTROY THE MODEL.
+    #
+    # The old line overwrote `name` with f"{year} {make} {model}" -- and no car
+    # in the garage has ever had a `model` key, because OBD-II does not report
+    # one and nothing writes one. So the single field that carried the model
+    # was overwritten to build a string that could not contain a model, and
+    # every screen in the app said "2015 Honda".
+    #
+    # garage.describe() had it right all along: prefer what the human typed.
+    label = str(out.get("name") or "").strip()
+    model = str(out.get("model") or "").strip() or label
+    if model:
+        out["model"] = model
+    out["label"] = label
+
+    # What the car is. Missing parts are skipped rather than left as a double
+    # space or a trailing gap where a model should be.
+    out["name"] = " ".join(
+        str(x) for x in (out.get("year"), out.get("make"), model) if x).strip() or label
+
+    # Whose it is. Two Hondas in one household is the ordinary case, and
+    # "James' 2015 Honda CR-Z" tells them apart at a glance where "2015 Honda"
+    # tells them apart from nothing.
+    out["owner"] = str(out.get("driver") or "").strip()
+    out["title"] = (f"{possessive(out['owner'])} {out['name']}".strip()
+                    if out["owner"] and out["name"] else out["name"])
     return out
 
 
@@ -715,6 +769,7 @@ def snapshot(include_samples=False):
         "stale": (max(0, int(time.time() - snap["t"])) if snap.get("t") else None),
         "vehicle": v,
         "name": v.get("name", ""),
+        "title": v.get("title", "") or v.get("name", ""),
         "odometer": round(odo, 1) if odo else None,
         "live": snap,
         "modules": modules(db),

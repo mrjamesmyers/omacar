@@ -500,6 +500,28 @@ case "${1:-open}" in
       *) sim_status ;;
     esac ;;
   status) exec python3 "$ROOT/lib/status.py" ;;
+  # The bar panel's rollup. The panel reads one JSON file rather than opening a
+  # 2 MB SQLite five times a minute, because a year of driving does not change
+  # between blinks -- but nothing in this repo ever wrote that file. It called
+  # `liquid-glass-car --quiet`, which is not a command that exists here or on
+  # anybody's PATH, so the cache was never created and the panel's whole
+  # vehicle side -- name, VIN, faults, service, trips -- was permanently empty.
+  # That is why the panel said "No car" next to a car that was plainly driving.
+  panel-cache)
+    exec python3 -c "
+import sys, os, json, tempfile
+sys.path.insert(0, '$ROOT/lib')
+import records
+out = os.path.expanduser('~/.local/state/omarchy/liquid-glass-car.json')
+os.makedirs(os.path.dirname(out), exist_ok=True)
+snap = records.snapshot()
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(out), suffix='.tmp')
+with os.fdopen(fd, 'w', encoding='utf-8') as f:
+    json.dump(snap, f)
+os.replace(tmp, out)
+if '--quiet' not in sys.argv:
+    print('  wrote %s' % out)
+" "$@" ;;
   share) shift; exec python3 "$ROOT/lib/share.py" "$@" ;;
   photo) shift; exec python3 "$ROOT/lib/photos.py" "$@" ;;
   concerns) exec python3 "$ROOT/lib/concerns.py" list ;;

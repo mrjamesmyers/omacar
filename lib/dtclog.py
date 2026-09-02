@@ -80,6 +80,12 @@ def sample_once(el, headers, want_catalogue):
     return rec
 
 
+# How often to look for the adapter while there is not one, and how often to
+# leave a note in the log saying we are still waiting.
+IDLE_POLL = 15.0
+IDLE_NOTE_EVERY = 1800.0
+
+
 def run(interval, headers, logpath, once=False, verbose=True):
     """Sample forever. Designed to survive a whole drive unattended.
 
@@ -94,6 +100,9 @@ def run(interval, headers, logpath, once=False, verbose=True):
     os.makedirs(os.path.dirname(logpath), exist_ok=True)
     first = True
     n = 0
+    # What we are currently skipping for, and when we last wrote it down.
+    waiting_for = None
+    waiting_logged = 0.0
     while True:
         started = time.time()
         rec = None
@@ -134,20 +143,51 @@ def run(interval, headers, logpath, once=False, verbose=True):
                 except Exception:                             # noqa: BLE001
                     pass
 
-        try:
-            with open(logpath, "a", encoding="utf-8") as f:
-                f.write(json.dumps(rec) + "\n")
-        except OSError as e:
-            print("dtclog: could not write log: %s" % e, file=sys.stderr, flush=True)
+        # WAITING IS NOT AN EVENT, AND IT IS NOT A REASON TO STOP.
+        #
+        # Unplug the adapter at the end of a leg and this used to append
+        # {"skipped": "no adapter"} every five minutes, for as long as the
+        # laptop stayed on -- an unbounded file of a car saying nothing, and no
+        # way to see at a glance where the driving stopped.
+        #
+        # Exiting instead would be worse: a journey is legs with meals and
+        # hotels between them, and a logger that gave up during lunch would
+        # have to be remembered and restarted before leg two, which is exactly
+        # the kind of thing nobody remembers. So it keeps waiting -- quietly,
+        # and paying attention.
+        skip = rec.get("skipped") if isinstance(rec, dict) else None
+        note = True
+        if skip:
+            # One line when the waiting starts, then a heartbeat, so the log
+            # still records that the tool was awake and watching.
+            if skip == waiting_for and (started - waiting_logged) < IDLE_NOTE_EVERY:
+                note = False
+            else:
+                waiting_for, waiting_logged = skip, started
+        else:
+            waiting_for, waiting_logged = None, 0.0
+
+        if note:
+            try:
+                with open(logpath, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(rec) + "\n")
+            except OSError as e:
+                print("dtclog: could not write log: %s" % e,
+                      file=sys.stderr, flush=True)
 
         n += 1
-        if verbose:
+        if verbose and note:
             summarise(rec, n)
         if once:
             return rec
         # Interval measured from the start of the sample, so a slow sample does
         # not push every later one later still.
-        time.sleep(max(5.0, interval - (time.time() - started)))
+        #
+        # While there is no adapter, look again far more often than the sample
+        # interval: plugging in at the start of leg two should start logging in
+        # seconds, not up to five minutes later.
+        wait = IDLE_POLL if skip == "no adapter" else interval
+        time.sleep(max(2.0, wait - (time.time() - started)))
 
 
 def summarise(rec, n):
