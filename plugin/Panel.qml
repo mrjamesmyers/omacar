@@ -778,7 +778,7 @@ Panel {
               anchors.right: parent.right
               // A proportion of the panel rather than a fixed size, so it stays
               // the same relative weight whatever width the bar gives us.
-              width: Math.round(parent.width * 0.46)
+              width: Math.round(parent.width * 0.38)
               // Derived from the artwork's own 3.3:1, not forced square. A
               // square box would leave the coupe floating in empty space.
               height: Math.round(width / heroWheel.aspect)
@@ -790,6 +790,15 @@ Panel {
 
             Column {
               id: heroCol
+              // Anchored to BOTH edges, not just the right one.
+              //
+              // With only a right anchor the column was as wide as its widest
+              // child and floated against the Stop button, leaving the left
+              // fifth of the panel empty. Spanning the gap puts the vehicle
+              // name where a name belongs -- at the left edge -- and gives the
+              // children a real width to elide and wrap against, which
+              // `width: heroCol.width` was previously resolving circularly.
+              anchors.left: parent.left
               anchors.right: root.connected ? stopBtn.left : startBtn.left
               anchors.rightMargin: Style.space(10)
               spacing: Style.space(3)
