@@ -42,6 +42,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import records  # noqa: E402
 
+# NOTE FOR ANYONE WRITING A TEST: this derives from records.STATE, not from
+# records.DB. Overriding records.DB alone therefore isolates the DATABASE and
+# not the FILES -- rows land in your temp database while documents are written
+# into the real library, and deleting the temp database orphans them. Override
+# docs.ROOT too. (Found exactly this way, by orphaning a file.)
 ROOT = os.path.join(records.STATE, "documents")
 MAX_BYTES = 32 * 1024 * 1024
 
@@ -257,6 +262,39 @@ def remove(doc_id):
         except OSError:
             pass
     return True
+
+
+def orphans():
+    """Files in the library with no row pointing at them.
+
+    They happen: a database restored from an older backup, an interrupted
+    write, or a test that isolated the database but not the file root. Worth
+    being able to find rather than leaving somebody to wonder why the folder is
+    bigger than the library says it is.
+    """
+    known = {d.get("file") for d in listing(n=100000)}
+    out = []
+    d = folder()
+    if not os.path.isdir(d):
+        return out
+    for name in sorted(os.listdir(d)):
+        if name not in known:
+            p = os.path.join(d, name)
+            if os.path.isfile(p):
+                out.append({"file": name, "bytes": os.path.getsize(p), "path": p})
+    return out
+
+
+def sweep_orphans():
+    """Delete them. Returns what went."""
+    gone = []
+    for o in orphans():
+        try:
+            os.remove(o["path"])
+            gone.append(o["file"])
+        except OSError:
+            pass
+    return gone
 
 
 def totals():
