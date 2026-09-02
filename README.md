@@ -478,18 +478,69 @@ candidate must never drive a gauge**. Name it, write its formula, check it
 against something you can see — the dash's own SoC bars, or a second tool —
 then mark it validated.
 
+### Where the Honda data actually was
+
+The DID sweep above came up empty on this car, and the null is worth recording
+because it is a real result rather than a broken tool: **8192 identifiers across
+both hybrid modules returned nothing**, on ECUs that answered `22F181` normally
+immediately afterwards. They were powered and talking; they simply have nothing
+mapped in that range.
+
+Service **0x19 (ReadDTCInformation)** is where the manufacturer content lives,
+and no amount of DID sweeping could have found it — 0x19 takes a *subfunction*,
+not an identifier. It is a different question to the ECU.
+
+    omacar dtc --parked        every 0x19 subfunction, on every module
+
+Subfunction `0x0A` asks a module to enumerate every fault code it can ever set.
+On the test car that returned **49 Honda hybrid-specific codes** — battery cell
+faults, cooling fan, current sensors, inverter temperatures. That catalogue is a
+map of what the module *measures*.
+
+Try `0x19` before committing hours to `0x22`. It costs about twenty requests.
+
+## Reading, writing, and what is refused
+
+OmaCar reads by default and can write when you arm it. A tool that cannot clear
+a code after you have fixed the fault is a viewer, not a diagnostic.
+
+    omacar write status | arm | disarm | list
+    omacar learn [--deep]      discover this car's modules and what they monitor
+    omacar dtclog              log DTC status through a whole drive
+
+Write mode covers clearing codes (0x04, 0x14), functional tests (0x2F), routines
+(0x31), settings (0x2E) and the session/security services those need (0x10,
+0x27). It **disarms itself after fifteen minutes**, and every operation states
+what it does to the car before anything is sent.
+
 ### Safety, enforced rather than documented
 
-- **Read-only at the transport.** `lib/elm.py` holds a whitelist of services it
-  will emit (0x01, 0x02, 0x03, 0x06, 0x07, 0x09, 0x21, 0x22) and raises before
-  anything reaches the bus otherwise. Write (0x2E), input/output control
-  (0x2F), routine control (0x31), ECU reset (0x11) and clear-DTC (0x14) cannot
-  be sent by this tool at all.
-- **It refuses to sweep a moving car.** Road speed is checked first; if the car
-  is moving it stops, and if speed cannot be read it stops and asks you to
-  confirm with `--parked` rather than assuming.
+- **Enforced at the transport.** `lib/elm.py` decides what may be emitted, so
+  nothing further up can route around it. Reads always pass; writes pass only
+  while armed.
+- **Reprogramming is absent, not disabled.** Services 0x34/0x36/0x37 cannot be
+  sent however armed the tool is. They need a manufacturer-signed firmware image
+  this tool cannot produce, and a partial transfer leaves a module unable to
+  boot. That is a tow truck, not a fault code.
+- **Clearing does not happen locally.** The clear request goes to the car first;
+  our own records are updated only if a module accepts it. (An earlier version
+  got this wrong in the worst way — it updated the database and reported success
+  without sending anything, so the codes vanished from the screen while the lamp
+  stayed lit.)
+- **It refuses to sweep or write to a moving car.** Road speed is checked first;
+  if it cannot be read, it stops and asks you to confirm with `--parked` rather
+  than assuming.
+- **Voltage floors.** Reads stop below 11.8 V, writes below 12.2 V. A write
+  interrupted by a brownout leaves a module holding half a change. This exists
+  because a 25-minute key-on session tripped an ABS warning with nothing
+  watching the battery.
+- **Routine identifiers are never discovered by sweeping.** Unlike readable
+  values, a routine is a procedure the module *runs* — guessing its number could
+  spin a fan, cycle an ABS pump or retract a parking brake. There is no harmless
+  miss, so `share/data/resets.json` ships only what somebody has confirmed on a
+  real car, and the app says "nothing verified for this vehicle" rather than
+  offering guesses. See `doc/RESETS.md`.
 - **It refuses to fight the daemon** for the serial port.
-- Rate-limited, and headers that answer nothing are abandoned early.
 
 ## Verify shader changes on the real display
 
