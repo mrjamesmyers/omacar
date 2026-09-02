@@ -1,6 +1,6 @@
 {
   "_readme": [
-    "Procedures the owner performs directly — no diagnostic tool involved.",
+    "Procedures the owner performs directly \u2014 no diagnostic tool involved.",
     "",
     "WHY THIS FILE EXISTS SEPARATELY FROM resets.json.",
     "",
@@ -14,7 +14,7 @@
     "THE RISK PROFILE IS COMPLETELY DIFFERENT, AND THAT CHANGES THE RULES.",
     "",
     "resets.json ships only verified routine identifiers, because a guessed",
-    "0x31 identifier does not fail safely — it runs a procedure on a real car.",
+    "0x31 identifier does not fail safely \u2014 it runs a procedure on a real car.",
     "Nothing in THIS file sends anything to the vehicle. The worst outcome of a",
     "wrong entry here is that somebody presses buttons on their own dashboard",
     "and it does not work. So this file can carry well-attested procedures at a",
@@ -25,31 +25,38 @@
     "",
     "`confidence` here means: verified = confirmed on a real car by a",
     "contributor; reported = widely documented and consistent across sources,",
-    "but not confirmed here; unverified = one source only, try with scepticism."
+    "but not confirmed here; unverified = one source only, try with scepticism.",
+    "",
+    "`verified` means somebody followed it on a real car and it worked. At the",
+    "time of writing nothing here has earned that, including the diagnostic",
+    "sequences -- those are sound reasoning, which is not the same thing. An",
+    "earlier version marked five of them verified on no evidence at all."
   ],
-
   "procedures": [
     {
       "id": "honda-key-fob-resync",
       "name": "Resync a remote key fob",
       "category": "keys",
-      "makes": ["Honda", "Acura"],
+      "makes": [
+        "Honda",
+        "Acura"
+      ],
       "confidence": "reported",
-      "source": "Widely documented Honda owner procedure; varies by model year — check the owner's manual first",
+      "source": "Widely documented Honda owner procedure; varies by model year \u2014 check the owner's manual first",
       "symptom": "Pressing lock or unlock does nothing at all: no motor sound, no lights, no response.",
       "not_for": "If you can HEAR the lock motors run but one door does not lock or unlock, the fob is working fine and the car received the command. That is a door lock actuator, not a sync problem. Resyncing will not fix it.",
       "steps": [
         "Sit in the driver's seat with the doors closed and every fob you want paired in hand.",
-        "Insert the key and turn the ignition to ON (position II) — do not start the engine.",
+        "Insert the key and turn the ignition to ON (position II) \u2014 do not start the engine.",
         "Within about five seconds, press LOCK on the fob. The locks should cycle.",
         "Turn the ignition OFF, then back to ON, and press LOCK again.",
         "Repeat until the locks cycle to confirm programming mode, typically after three or four cycles.",
-        "In programming mode, press LOCK once on every fob you want registered — including ones that already work. Fobs not pressed during this step are usually erased.",
+        "In programming mode, press LOCK once on every fob you want registered \u2014 including ones that already work. Fobs not pressed during this step are usually erased.",
         "Turn the ignition OFF and remove the key. Test every fob."
       ],
       "notes": [
         "All fobs must be present. This procedure normally clears any fob you do not re-register.",
-        "A fob that has stopped working entirely is far more often a dead battery than a lost sync. Try a fresh CR2032 first — it costs a dollar.",
+        "A fob that has stopped working entirely is far more often a dead battery than a lost sync. Try a fresh CR2032 first \u2014 it costs a dollar.",
         "If it does not take after two attempts, stop. Some model years need dealer-level registration, and repeated attempts can lock the receiver out temporarily."
       ]
     },
@@ -57,7 +64,10 @@
       "id": "honda-maintenance-minder-reset",
       "name": "Reset the oil life / maintenance minder",
       "category": "service",
-      "makes": ["Honda", "Acura"],
+      "makes": [
+        "Honda",
+        "Acura"
+      ],
       "confidence": "reported",
       "source": "Standard Honda maintenance minder procedure; the control differs between button and knob clusters",
       "symptom": "Oil life percentage or a wrench icon still showing after an oil change.",
@@ -70,7 +80,7 @@
         "Turn the ignition off."
       ],
       "notes": [
-        "Only do this after actually changing the oil. The indicator is how the next person knows when it was last done — resetting it without the change destroys that record.",
+        "Only do this after actually changing the oil. The indicator is how the next person knows when it was last done \u2014 resetting it without the change destroys that record.",
         "A dashboard procedure. Nothing needs to be plugged in."
       ]
     },
@@ -78,7 +88,10 @@
       "id": "honda-tpms-calibration",
       "name": "Calibrate the tyre pressure monitor",
       "category": "service",
-      "makes": ["Honda", "Acura"],
+      "makes": [
+        "Honda",
+        "Acura"
+      ],
       "confidence": "reported",
       "source": "Honda deflation-warning system calibration, via the vehicle settings menu",
       "symptom": "TPMS warning light after inflating tyres, rotating them, or changing a wheel.",
@@ -86,7 +99,7 @@
         "Set every tyre to the pressure on the driver's door jamb placard, with the tyres cold.",
         "Turn the ignition to ON.",
         "Open the vehicle settings menu on the instrument display or infotainment screen.",
-        "Find TPMS Calibration — often under Vehicle Settings or Customise Settings.",
+        "Find TPMS Calibration \u2014 often under Vehicle Settings or Customise Settings.",
         "Select Calibrate and confirm.",
         "Drive normally. Calibration completes after roughly 30 minutes of cumulative driving above about 30 mph."
       ],
@@ -99,7 +112,10 @@
       "id": "honda-window-auto-relearn",
       "name": "Relearn power window auto-up",
       "category": "service",
-      "makes": ["Honda", "Acura"],
+      "makes": [
+        "Honda",
+        "Acura"
+      ],
       "confidence": "reported",
       "source": "Common Honda procedure after battery disconnection",
       "symptom": "Auto-up or auto-down stopped working after the battery was disconnected or replaced.",
@@ -110,26 +126,29 @@
         "Test auto-up and auto-down. Repeat for each window that lost the function."
       ],
       "notes": [
-        "The single most common thing people think is a fault after a battery change. It is not — the module simply lost its end stops."
+        "The single most common thing people think is a fault after a battery change. It is not \u2014 the module simply lost its end stops."
       ]
     },
     {
       "id": "honda-idle-relearn",
       "name": "Idle relearn after a battery disconnect",
       "category": "service",
-      "makes": ["Honda", "Acura"],
+      "makes": [
+        "Honda",
+        "Acura"
+      ],
       "confidence": "reported",
       "source": "Honda idle learn procedure, standard across most port-injected models",
       "symptom": "Rough, hunting or high idle after the battery was disconnected or the ECU reset.",
       "steps": [
-        "Start the engine and let it reach full operating temperature — the cooling fan should cycle on at least once.",
+        "Start the engine and let it reach full operating temperature \u2014 the cooling fan should cycle on at least once.",
         "Switch off every load: air conditioning, headlights, rear defogger, radio, fan.",
         "Leave the transmission in Park or Neutral, and do not touch the throttle.",
         "Let it idle for ten minutes with the bonnet closed.",
         "Switch off. The idle should be settled on the next start."
       ],
       "notes": [
-        "Steering must stay centred and still during the ten minutes — power steering load interferes with the learn on some models.",
+        "Steering must stay centred and still during the ten minutes \u2014 power steering load interferes with the learn on some models.",
         "If idle is still wrong afterwards, the relearn is not the problem: look at the throttle body, an intake leak, or fuel trims. OmaCar's fuel trim reading will tell you which."
       ]
     },
@@ -137,12 +156,15 @@
       "id": "honda-radio-code",
       "name": "Recover the radio code after a battery disconnect",
       "category": "service",
-      "makes": ["Honda", "Acura"],
+      "makes": [
+        "Honda",
+        "Acura"
+      ],
       "confidence": "reported",
       "source": "Honda anti-theft radio code recovery",
       "symptom": "Radio shows CODE or ENTER CODE after the battery was replaced or went flat.",
       "steps": [
-        "First check the glovebox, the owner's manual wallet and the door jamb — the code card is often still with the car.",
+        "First check the glovebox, the owner's manual wallet and the door jamb \u2014 the code card is often still with the car.",
         "If not, get the radio serial number: turn the ignition to ON with the radio OFF, then press and hold preset 1 and preset 6 together while turning the radio ON.",
         "The serial number appears on the display, usually in two parts.",
         "Enter that serial and your VIN on Honda's owner site (radio-navicode.honda.com) to get the code, or ring any Honda dealer's parts desk.",
@@ -158,21 +180,21 @@
       "name": "Get readiness monitors ready for an emissions test",
       "category": "service",
       "makes": [],
-      "confidence": "verified",
+      "confidence": "reported",
       "source": "EPA/SAE generic OBD-II drive cycle; specifics vary by manufacturer",
       "symptom": "Emissions test rejected as 'not ready', usually after clearing codes or disconnecting the battery.",
       "steps": [
-        "Leave the car parked overnight so it starts genuinely cold — below about 30°C coolant, and cold ambient. Several monitors will not run without a true cold start.",
+        "Leave the car parked overnight so it starts genuinely cold \u2014 below about 30\u00b0C coolant, and cold ambient. Several monitors will not run without a true cold start.",
         "Start and idle for two to three minutes with the air conditioning and rear defogger ON.",
         "Switch the accessories off and idle a further two minutes.",
-        "Drive at a steady 40–55 mph for five to ten minutes on light throttle. Avoid hard acceleration.",
+        "Drive at a steady 40\u201355 mph for five to ten minutes on light throttle. Avoid hard acceleration.",
         "Decelerate and coast without touching the throttle for at least twenty seconds.",
-        "Accelerate moderately back to 40–55 mph and hold for a further five minutes.",
+        "Accelerate moderately back to 40\u201355 mph and hold for a further five minutes.",
         "Idle for two minutes, then switch off.",
         "Repeat over two or three days of ordinary mixed driving. The EVAP monitor in particular often needs a fuel level between roughly 15% and 85% and will not run outside that."
       ],
       "notes": [
-        "Check progress in OmaCar under Health rather than guessing — it shows which monitors are still incomplete, so you only chase the ones that matter.",
+        "Check progress in OmaCar under Health rather than guessing \u2014 it shows which monitors are still incomplete, so you only chase the ones that matter.",
         "Most states allow one or two incomplete monitors on OBD-II vehicles. Being 'not ready' on one monitor is often still a pass.",
         "This is exactly what clearing codes costs you, and why OmaCar warns before it clears."
       ]
@@ -182,12 +204,12 @@
       "name": "What to do before and after replacing the battery",
       "category": "service",
       "makes": [],
-      "confidence": "verified",
+      "confidence": "reported",
       "source": "General procedure",
       "symptom": "Planning a battery replacement, or something stopped working after one.",
       "steps": [
         "BEFORE: write down the radio code if the car has one, and note your seat and mirror positions if they are not memorised.",
-        "BEFORE: run a scan and save the report. A disconnect wipes stored codes and freeze frames — the evidence for anything you were chasing.",
+        "BEFORE: run a scan and save the report. A disconnect wipes stored codes and freeze frames \u2014 the evidence for anything you were chasing.",
         "Disconnect negative first, reconnect negative last. This is not superstition: a spanner touching bodywork while the positive is live is a short across the battery.",
         "AFTER: relearn the power windows if auto-up stopped working.",
         "AFTER: perform the idle relearn if the idle is rough or hunting.",
@@ -195,25 +217,25 @@
         "AFTER: expect readiness monitors to be 'not complete' for several days. Do not book an emissions test immediately."
       ],
       "notes": [
-        "A memory saver plugged into the OBD port preserves most of this — but it also means the port is occupied and live, so do not leave a diagnostic tool connected at the same time.",
+        "A memory saver plugged into the OBD port preserves most of this \u2014 but it also means the port is occupied and live, so do not leave a diagnostic tool connected at the same time.",
         "Some makes (BMW, Mercedes, Audi, some Volvo and Land Rover) require the new battery to be REGISTERED with the charging system. Honda and Toyota generally do not. Registering is an OBD write, not a dashboard procedure."
       ]
     },
     {
       "id": "check-engine-first-steps",
-      "name": "Check engine light just came on — what to do first",
+      "name": "Check engine light just came on \u2014 what to do first",
       "category": "diagnosis",
       "makes": [],
-      "confidence": "verified",
+      "confidence": "reported",
       "source": "General diagnostic sequence",
       "symptom": "The amber engine light is on and you do not know why yet.",
       "steps": [
-        "Is it flashing? A flashing engine light means an active misfire dumping raw fuel into the catalytic converter. Reduce load, drive gently, and get it looked at now — this destroys a converter in minutes.",
+        "Is it flashing? A flashing engine light means an active misfire dumping raw fuel into the catalytic converter. Reduce load, drive gently, and get it looked at now \u2014 this destroys a converter in minutes.",
         "Steady light: read the code before doing anything else. Do not clear it.",
         "Check the fuel cap. It is the single most common cause of an EVAP code, and tightening it clears the fault on its own after a few drive cycles.",
         "Save the freeze frame. It records speed, load and temperature at the moment the fault set, and it is usually more useful than the code itself.",
-        "Look at fuel trims while it idles. Persistently above +10% suggests an air leak; persistently below −10% suggests over-fuelling.",
-        "Only clear the code once you have fixed something — and understand that clearing resets the readiness monitors."
+        "Look at fuel trims while it idles. Persistently above +10% suggests an air leak; persistently below \u221210% suggests over-fuelling.",
+        "Only clear the code once you have fixed something \u2014 and understand that clearing resets the readiness monitors."
       ],
       "notes": [
         "Resist clearing to 'see if it comes back'. You lose the freeze frame, and you lose your emissions readiness for days.",
@@ -225,14 +247,14 @@
       "name": "Diagnose a door that will not lock or unlock",
       "category": "diagnosis",
       "makes": [],
-      "confidence": "verified",
+      "confidence": "reported",
       "source": "General diagnostic sequence",
       "symptom": "One door does not respond, or you hear the motor run but the latch does not move.",
       "steps": [
-        "Press lock/unlock and listen at the failing door. A motor you can hear means power and signal are reaching the actuator — the fault is mechanical, or the actuator itself.",
+        "Press lock/unlock and listen at the failing door. A motor you can hear means power and signal are reaching the actuator \u2014 the fault is mechanical, or the actuator itself.",
         "No sound at that door while the others work: suspect the wiring in the rubber boot between the door and the body. That harness flexes every time the door opens and is where breaks happen.",
         "Try the interior lock switch and the physical key. If the manual lever works but power does not, the latch mechanism is fine and the actuator is the suspect.",
-        "Scan the body module for a manufacturer-specific B-code — generic OBD-II never shows these.",
+        "Scan the body module for a manufacturer-specific B-code \u2014 generic OBD-II never shows these.",
         "Actuators are usually a serviceable part, replaceable with the door card off."
       ],
       "notes": [
@@ -245,15 +267,15 @@
       "name": "EVAP / small leak codes (P0440, P0442, P0455, P0456, P0457)",
       "category": "diagnosis",
       "makes": [],
-      "confidence": "verified",
+      "confidence": "reported",
       "source": "General diagnostic sequence",
       "symptom": "An evaporative emissions code, usually with no drivability symptom at all.",
       "steps": [
         "Check the fuel cap first. Remove it, inspect the rubber seal for cracks or hardening, and refit until it clicks at least three times.",
-        "P0457 specifically means 'leak detected — fuel cap loose or off'. Start there and go no further until it is ruled out.",
+        "P0457 specifically means 'leak detected \u2014 fuel cap loose or off'. Start there and go no further until it is ruled out.",
         "If the cap is good, look at the filler neck for corrosion and the EVAP hoses for splits, particularly where they pass near heat.",
         "The purge valve and vent valve are the usual failures after the cap. A purge valve stuck open often also causes a rough or stalling idle when cold.",
-        "Clear the code and drive several cycles. EVAP monitors need a partly-full tank — roughly 15% to 85% — and stable temperatures to run at all."
+        "Clear the code and drive several cycles. EVAP monitors need a partly-full tank \u2014 roughly 15% to 85% \u2014 and stable temperatures to run at all."
       ],
       "notes": [
         "A cheap smoke test finds these in minutes and is worth paying for rather than replacing parts speculatively.",

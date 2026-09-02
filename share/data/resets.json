@@ -16,16 +16,23 @@
     "cooling fan, cycle an ABS pump, retract a parking brake, or run the engine",
     "to a target speed. There is no harmless miss.",
     "",
-    "So this file ships only what is verified, and OmaCar says 'no verified",
-    "resets for this vehicle' rather than offering a guess. An invented routine",
+    "So this file ships only what somebody can point at a source for, and OmaCar",
+    "says 'no verified resets for this vehicle' rather than guessing. An invented routine",
     "identifier presented as a button is the single most dangerous thing this",
     "project could ship.",
     "",
     "TO CONTRIBUTE ONE: see doc/RESETS.md. A definition needs a source (a",
     "service manual, an OEM procedure, or a verified capture), the vehicles it",
-    "was confirmed on, and someone willing to say it worked on their own car."
+    "was confirmed on, and someone willing to say it worked on their own car.",
+    "",
+    "NOTHING HERE IS MARKED `verified` YET.",
+    "`verified` means somebody ran it on a real car and it worked. The two",
+    "clears below are standardised and widely implemented -- that is what",
+    "`source` records -- but standardised is not the same as confirmed, and an",
+    "earlier version of this file claimed both had been confirmed on a 2015",
+    "CR-Z when no clear had ever been sent to that car. If you run one and it",
+    "works, add your vehicle to `confirmed_on` and raise the confidence."
   ],
-
   "schema": {
     "id": "stable identifier, kebab-case",
     "name": "what a person calls it",
@@ -42,7 +49,6 @@
     "warning": "what happens when it runs, shown before the button",
     "preconditions": "list of things that must be true first"
   },
-
   "resets": [
     {
       "id": "clear-emissions-generic",
@@ -50,14 +56,16 @@
       "category": "clear",
       "makes": [],
       "header": "7DF",
-      "requests": ["04"],
-      "confidence": "verified",
-      "source": "SAE J1979 mode 04 — standardised on every OBD-II vehicle since 1996",
-      "confirmed_on": ["2015 Honda CR-Z"],
+      "requests": [
+        "04"
+      ],
+      "confidence": "reported",
+      "source": "SAE J1979 mode 04 \u2014 standardised on every OBD-II vehicle since 1996",
+      "confirmed_on": [],
       "warning": "Erases emissions fault codes and freeze-frame data, and resets every readiness monitor to 'not complete'. The car will fail an emissions test until the monitors run again, which usually takes several days of mixed driving. If the fault is still present the code returns immediately.",
       "preconditions": [
         "Engine off, ignition on",
-        "Fix the fault first — clearing does not repair anything",
+        "Fix the fault first \u2014 clearing does not repair anything",
         "Write down the codes before clearing; the freeze frame goes with them"
       ]
     },
@@ -67,11 +75,13 @@
       "category": "clear",
       "makes": [],
       "header": "",
-      "requests": ["14FFFFFF"],
-      "confidence": "verified",
+      "requests": [
+        "14FFFFFF"
+      ],
+      "confidence": "reported",
       "source": "ISO 14229 service 0x14, ClearDiagnosticInformation, group FFFFFF (all groups)",
-      "confirmed_on": ["2015 Honda CR-Z"],
-      "warning": "Clears the manufacturer-specific codes held by one module — including faults that a generic mode-04 clear never touches. Choose the module before running it.",
+      "confirmed_on": [],
+      "warning": "Clears the manufacturer-specific codes held by one module \u2014 including faults that a generic mode-04 clear never touches. Choose the module before running it.",
       "preconditions": [
         "Engine off, ignition on",
         "A module address must be chosen",

@@ -6,11 +6,16 @@
 laptop somebody already owns.**
 
 Professional diagnostics is one of the last consumer-adjacent fields still gated
-by five-figure hardware. A Snap-on Zeus is around $12,000. An Autel MaxiSys Ultra
-is $8,000–10,000. A Launch X431 is $3,000–5,000. Every one of them is a
-mid-range Android tablet in a rubber case, running software, talking to a
-$40 interface over a standard connector — plus an annual subscription of
-$1,000–2,500 to keep the vehicle coverage current.
+by five-figure hardware. Flagship scan tools from Snap-on, Autel and Launch run
+from the low thousands to well over ten thousand dollars, plus an annual
+subscription to keep vehicle coverage current. Every one of them is a mid-range
+Android tablet in a rubber case, running software, talking to an interface that
+costs tens of dollars over a standard connector.
+
+*(Figures throughout are indicative rather than quoted. Prices vary by
+territory, bundle and dealer, and none of them are cited here from a price
+list. The argument does not depend on the exact number — it depends on the
+ratio, which is not close.)*
 
 You are not paying for the tablet. You are paying for **coverage**: thousands of
 engineer-years spent working out what identifier means what on which model. That
@@ -24,10 +29,10 @@ This document is about how a free tool takes it.
 
 Four asymmetries, and the third is the whole strategy.
 
-**1. The hardware advantage is gone.** The compute in a $12,000 tablet is
-weaker than the laptop this was developed on — a 2016 Yoga 710 that cost $200
-used. The interface is an ELM327 or STN chipset, $25 to $80. There is nothing
-in the box worth four figures.
+**1. The hardware advantage is gone.** The compute in these tablets is weaker
+than the second-hand laptop this was developed on. The interface is an ELM327
+or STN chipset costing tens of dollars. There is nothing in the box worth four
+figures.
 
 **2. Their software is worse than it should be.** These are single-vendor
 codebases under decade-old assumptions, with no plugin story, no scripting, and
@@ -68,7 +73,7 @@ Being credible means naming what is genuinely hard, gated, or off the table.
 - **Oscilloscope and multimeter** work needs hardware we do not ship. We can
   integrate with things people already own.
 
-Everything else on a $12,000 tablet is reachable.
+Everything else these tools do is reachable.
 
 ---
 
@@ -91,12 +96,23 @@ hardware, over a real adapter.
   default, consequences stated before sending
 - Learn mode, onboarding, in-car hub layout, Omarchy Radio
 - Quickshell plugin: bar icon, panel, start/stop, live status
+- **Replay** — scrub a recorded drive, read every channel at any instant, CSV export
+- **Shareable profile format** with per-entry provenance and merge rules (2.1)
+- **Automatic discovery** that resumes across drives and gates itself on the
+  alternator (2.2)
+- **Validation by correlation** against trusted channels, which refuses when the
+  data cannot distinguish two explanations (2.3)
+- **Protocol awareness** for pre-CAN vehicles — header shapes, framing, pacing
+  and which services are worth asking (2.5, untested on a pre-CAN car)
 
 **Honest limits**
 - One validated vehicle profile
 - Manufacturer identifier space is ~4.5% explored on that one car
 - No coverage for any other make
-- Pre-CAN protocols (J1850, ISO 9141-2, KWP2000) not yet supported
+- Pre-CAN support is written from the ELM327 datasheet and the ISO documents,
+  and **has never been run against a pre-CAN car**. Every protocol entry says so.
+- Nothing in `resets.json` or `procedures.json` is `verified` yet: verified means
+  somebody ran it on a real car, and nobody has.
 
 ---
 
@@ -111,11 +127,11 @@ registration, DPF regeneration, throttle body relearn. Each is a routine control
 (0x31) call with per-make parameters. **This is the highest-value item on the
 entire roadmap per hour of work.**
 
-**1.1b Owner procedures.** A large share of what people buy a scan tool for is
+**1.1b Owner procedures. — DONE.** A large share of what people buy a scan tool for is
 not a diagnostic operation at all — Honda's oil life reset is buttons on the
 instrument cluster, TPMS calibration is a settings menu, key fob resync is an
-ignition sequence. A $12,000 tablet does these no better than a person with the
-right instructions, and often does not do them at all. Because nothing is sent
+ignition sequence. An expensive tablet does these no better than a person with
+the right instructions, and often does not do them at all. Because nothing is sent
 to the vehicle, these carry a *different risk profile* from routine control and
 therefore a lower evidence bar: a wrong entry wastes an afternoon rather than
 commanding an actuator. Shipped in `share/data/procedures.json`.
@@ -124,9 +140,9 @@ commanding an actuator. Shipped in `share/data/procedures.json`.
 Actuator tests with a physical-safety confirmation, live feedback, and an
 always-visible release control.
 
-**1.3 Live data that earns its name.** Multi-PID graphing, recording, and replay
-with a scrubber. Snapshot-on-trigger so an intermittent fault can be caught.
-Export to CSV.
+**1.3 Live data that earns its name. — MOSTLY DONE.** Multi-PID graphing,
+recording, and replay with a scrubber: done. CSV export: done. Snapshot-on-
+trigger, so an intermittent fault is captured without anybody watching: not yet.
 
 **1.4 Guided diagnosis.** For a stored code: what it means, the usual causes
 ranked, which live values discriminate between them, and what to test next.
@@ -139,15 +155,16 @@ a static database — it can reason over *this* car's actual live data.
 
 *The hard problem. Everything here is in service of it.*
 
-**2.1 A profile format worth sharing.** Versioned, signed, with provenance per
-entry: who found it, on which model year, validated against a physical gauge or
+**2.1 A profile format worth sharing. — DONE.** Versioned, checksummed (for
+integrity — explicitly *not* a signature, which would need a key story this
+project does not have), with provenance per entry: who found it, on which model year, validated against a physical gauge or
 merely observed to vary. **Confidence is a field, not a footnote.**
 
-**2.2 Automated discovery.** Today a sweep is a person deciding to run one.
+**2.2 Automated discovery. — DONE.** Today a sweep is a person deciding to run one.
 It should be: plug in, and OmaCar quietly maps what it has not seen — resuming
 across drives, never while moving, never below the voltage floor.
 
-**2.3 Validation without a lab.** A candidate becomes validated when it tracks
+**2.3 Validation without a lab. — DONE.** A candidate becomes validated when it tracks
 something we already trust: correlate an unknown byte against a known PID, a
 GPS speed, an ambient temperature. Anything that moves with coolant temperature
 across three drives is coolant temperature.
@@ -157,9 +174,9 @@ and years far more than they admit. A validated Honda map is a strong prior for
 every other Honda of that era. This is where a shared database compounds:
 **coverage grows faster than the number of contributors.**
 
-**2.5 Protocol breadth.** J1850 PWM/VPW, ISO 9141-2 and KWP2000 for pre-CAN
+**2.5 Protocol breadth. — WRITTEN, UNTESTED.** J1850 PWM/VPW, ISO 9141-2 and KWP2000 for pre-CAN
 vehicles; J1939 for trucks. Old vehicles are exactly the ones nobody will spend
-$12,000 to diagnose.
+thousands of dollars to diagnose.
 
 ## Phase 3 — OmaCar Cloud (Rails)
 
@@ -246,6 +263,6 @@ Load-bearing. Several were learned by breaking something.
 
 ## The one-sentence version
 
-*A $200 laptop, a $30 cable, and a community that shares what it finds should be
-able to out-diagnose a $12,000 tablet — and every model somebody maps makes it
-true for one more car.*
+*A second-hand laptop, a cheap cable, and a community that shares what it finds
+should be able to out-diagnose a tool costing a hundred times as much — and
+every model somebody maps makes it true for one more car.*
