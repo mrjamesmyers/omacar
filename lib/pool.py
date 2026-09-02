@@ -56,6 +56,35 @@ def _get(url):
         return r.read(MAX_BYTES + 1)
 
 
+def _github_listing(pool):
+    """List a GitHub-hosted pool from the API when there is no index.
+
+    A hand-maintained index is one more thing to forget: a contributor adds a
+    profile, does not update index.json, and the pool silently does not offer
+    it. Falling back to listing the directory makes the pool self-maintaining
+    -- the files ARE the index -- while index.json still works for a pool
+    hosted on anything else.
+    """
+    import re
+    m = re.match(r"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)",
+                 (pool or "").rstrip("/"))
+    if not m:
+        return None
+    owner, repo, ref, path = m.groups()
+    api = (f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+           f"?ref={ref}")
+    try:
+        raw = _get(api)
+        items = json.loads(raw.decode("utf-8"))
+    except Exception:                                          # noqa: BLE001
+        return None
+    if not isinstance(items, list):
+        return None
+    return [{"slug": i["name"][:-5], "entries": None, "validated": None}
+            for i in items
+            if isinstance(i, dict) and i.get("name", "").endswith(".toml")]
+
+
 def index(pool=None):
     """What the pool offers. (entries, error)."""
     url = (pool or DEFAULT_POOL).rstrip("/") + "/index.json"
@@ -63,6 +92,9 @@ def index(pool=None):
         raw = _get(url)
     except urllib.error.HTTPError as e:
         if e.code == 404:
+            listed = _github_listing(pool or DEFAULT_POOL)
+            if listed:
+                return listed, ""
             return [], ("the pool has no index yet — nobody has contributed a "
                         "profile. Yours would be the first.")
         return [], f"HTTP {e.code} from the pool"

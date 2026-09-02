@@ -177,16 +177,42 @@ machine badly enough to crash the desktop.
 **Honest caching.** A scan that reused cached data says so. An early version
 showed a progress bar over cached results, which is a scan tool inventing work.
 
-## 8. Contribute what you find
+## 8. Take what others have found, first
+
+Before sweeping anything, ask whether somebody has already done it:
+
+    omacar profile pool                 what the community has
+    omacar profile fetch honda-crz-2015 what it would change, without changing it
+    omacar profile fetch honda-crz-2015 --apply
+
+A seventy-minute sweep you did not have to run is the entire argument of this
+project. The pool is a directory of files in the git repository — no server, no
+account, and contributing is a pull request.
+
+**A pool profile is community data.** Its checksum proves the file arrived
+intact; it proves nothing about whether its author was right, and it is not a
+signature. So `fetch` shows you what would change and stops. Applying is a
+separate act, and every entry that arrives this way is stamped with where it
+came from, so a reading that later looks wrong can be traced out rather than
+merely doubted.
+
+## 9. Contribute what you find
 
 A validated profile is worth far more shared than kept. Sweeping the full
 manufacturer range takes about seventy minutes **per car** — but only once per
 *model*, if the results are pooled. The second owner of your car should get the
 map, not the sweep.
 
-Profiles live in `~/.local/state/omacar/profiles/`. Include the model year and
-say plainly which entries you validated against a physical gauge and which are
-still candidates.
+    omacar profile share honda-crz-2015
+
+That writes a copy ready to attach to a pull request and tells you what to check
+before you publish it — including anything that looks like a full VIN, which
+must never leave your machine. Only the eight-character prefix is stored, which
+gives make, model and year and identifies no particular car.
+
+Say plainly which entries you validated against a physical gauge and which are
+still candidates. `omacar profile check` will tell you if the file itself has
+problems.
 
 ---
 
