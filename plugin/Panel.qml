@@ -1143,49 +1143,7 @@ Panel {
             // the text beside it, and a container sized only to the text would
             // clip it.
             height: Math.max(heroCol.implicitHeight,
-                             (root.connected ? heroWheel.height : startBtn.height)
-                               + Style.space(8) + heroBtns.height)
-
-            // The start button lives exactly where the wheel does, because the
-            // wheel is meaningless when nothing is reading the car -- and two
-            // controls fighting for the corner would be worse than one that
-            // changes with the state.
-            Rectangle {
-              id: startBtn
-              visible: !root.connected
-              anchors.top: parent.top
-              // Same corner as the car, for the reason the comment above gives.
-              // Neither had a horizontal anchor, so "the corner" they were
-              // sharing was the LEFT one, with the button row and the text
-              // column anchored to their left and therefore off the panel.
-              anchors.right: parent.right
-              width: Style.space(40)
-              height: width
-              radius: width / 2
-              color: startMouse.containsMouse ? root.dim(0.22) : root.dim(0.13)
-              border.width: 1
-              border.color: root.dim(0.4)
-
-              Text {
-                anchors.centerIn: parent
-                // Play when idle; dots while starting. It was briefly the STOP
-                // glyph for the working state, which is the one thing a start
-                // button must never look like.
-                text: root.daemonStarting ? "\u{F0772}" : "\u{F040A}"
-                color: root.fg
-                font.family: root.bar.fontFamily
-                font.pixelSize: Math.round(Style.space(40) * 0.42)
-                opacity: root.daemonStarting ? 0.5 : 1
-              }
-
-              MouseArea {
-                id: startMouse
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.startOmaCar()
-              }
-            }
+                             heroWheel.height + Style.space(8) + heroBtns.height)
 
             // EVERY action in one row, right-aligned under the car.
             //
@@ -1200,10 +1158,28 @@ Panel {
             // spot instead.
             Row {
               id: heroBtns
-              anchors.top: root.connected ? heroWheel.bottom : startBtn.bottom
+              anchors.top: heroWheel.bottom
               anchors.topMargin: Style.space(8)
               anchors.right: parent.right
               spacing: Style.space(6)
+
+              // A PLUG, not a play triangle. Play means "begin something";
+              // this establishes a link to a car over a serial adapter, and a
+              // plug is the thing you physically did a moment earlier.
+              // U+F06A5 is nf-md-power_plug, checked present in the bar font
+              // rather than assumed.
+              //
+              // It sits in the row rather than in the corner as a circle. The
+              // corner argument was that a lone control there could not fight
+              // the car for the space; once every other action moved into this
+              // row, one round button floating above three pills was simply
+              // the odd one out.
+              PillButton {
+                visible: !root.connected
+                label: root.daemonStarting ? "\u{F06A5}  Connecting" : "\u{F06A5}  Connect"
+                fade: root.daemonStarting ? 0.5 : 1
+                onPressed: root.startOmaCar()
+              }
 
               PillButton {
                 visible: root.connected
@@ -1228,14 +1204,20 @@ Panel {
 
             Car {
               id: heroWheel
-              visible: root.connected
+              // ALWAYS drawn, faint when there is no link.
+              //
+              // It used to be hidden while disconnected, because a round start
+              // button occupied this corner and two things could not share it.
+              // That button is in the row now, so the corner is free -- and a
+              // panel that keeps its shape between states is easier to use
+              // than one that reflows every time the adapter drops. Faint,
+              // though: a full-strength car would be claiming a live link.
               anchors.top: parent.top
               // UPPER RIGHT, and big.
               //
               // It had no horizontal anchor at all, so it sat at x=0 while
               // heroCol anchored itself to its left -- which put the text at
-              // negative x, off the panel. The corner the comment
-              // above startBtn talks about was never actually being used.
+              // negative x, off the panel.
               anchors.right: parent.right
               // A proportion of the panel rather than a fixed size, so it stays
               // the same relative weight whatever width the bar gives us.
@@ -1243,7 +1225,7 @@ Panel {
               // Derived from the artwork's own 3.3:1, not forced square. A
               // square box would leave the coupe floating in empty space.
               height: Math.round(width / heroWheel.aspect)
-              tint: root.dim(root.engineOn ? 0.85 : 0.34)
+              tint: root.dim(root.engineOn ? 0.85 : root.connected ? 0.55 : 0.16)
               running: root.engineOn
               spin: root.state_ === "driving" ? 0.42 : 0
               Behavior on spin { NumberAnimation { duration: 900; easing.type: Easing.OutBack } }
