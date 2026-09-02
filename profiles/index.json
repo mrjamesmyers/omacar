@@ -1,0 +1,32 @@
+{
+  "_readme": [
+    "The community profile pool. One file per vehicle, fetched by",
+    "`omacar profile fetch <slug>`.",
+    "",
+    "A profile here is COMMUNITY DATA. Its checksum proves the file is",
+    "intact; it proves nothing about whether its author was right. Fetching",
+    "shows you what would change and stops -- applying is a separate act.",
+    "",
+    "To contribute: `omacar profile share <slug>`, then open a pull request",
+    "saying which car you ran it on and which entries you checked against",
+    "something real. See doc/SWEEPING.md."
+  ],
+  "updated": "2026-09-02",
+  "profiles": [
+    {
+      "slug": "honda-crz-2015",
+      "make": "Honda",
+      "model": "CR-Z",
+      "years": [
+        2011,
+        2016
+      ],
+      "protocol": "ISO 15765-4 (CAN 29/500)",
+      "entries": 1,
+      "validated": 0,
+      "contributors": [
+        "mrjamesmyers"
+      ]
+    }
+  ]
+}

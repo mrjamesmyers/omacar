@@ -194,6 +194,89 @@ def cmd_refute(arg, pid_id, why, who=None):
     return 1
 
 
+def cmd_pool(pool=None):
+    import pool as poollib
+    entries, err = poollib.index(pool)
+    print(f"\n  {BOLD}Community profiles{RESET}  {DIM}{pool or poollib.DEFAULT_POOL}{RESET}")
+    if err:
+        print(f"  {YELLOW}{err}{RESET}\n")
+        return 1
+    if not entries:
+        print("  the pool is empty\n")
+        return 0
+    for e in entries:
+        print(f"    {e.get('slug','?'):24} {e.get('make','')} {e.get('model','')}"
+              f"   {e.get('validated',0)} validated / {e.get('entries',0)} entries")
+    print(f"\n  {DIM}omacar profile fetch <slug>{RESET}\n")
+    return 0
+
+
+def cmd_fetch(slug, pool=None, apply_it=False):
+    """Show what the pool would change. Applying is separate on purpose."""
+    import pool as poollib
+    doc, note, err = poollib.fetch(slug, pool)
+    if err:
+        print(f"\n  {RED}{err}{RESET}\n")
+        return 1
+    doc = poollib.stamp_origin(doc, slug, pool)
+
+    local, path = P.load(slug)
+    if not local:
+        local = {"schema": P.SCHEMA, "car": doc.get("car", {}),
+                 "meta": {}, "pid": []}
+        path = os.path.join(os.path.expanduser(
+            "~/.local/state/omacar/profiles"), slug + ".toml")
+
+    d = poollib.diff(local, doc)
+    print(f"\n  {BOLD}{slug}{RESET} from the pool  {DIM}({note}){RESET}")
+    print(f"  {len(d['added'])} new, {len(d['upgraded'])} upgraded, "
+          f"{d['kept']} unchanged\n")
+    for pid, conf in d["added"][:20]:
+        print(f"    {GREEN}+{RESET} {pid:32} {conf}")
+    for pid, was, now in d["upgraded"][:20]:
+        print(f"    {BLUE}^{RESET} {pid:32} {was} -> {now}")
+    if not d["added"] and not d["upgraded"]:
+        print("    nothing to take — you already have everything it knows.")
+        return 0
+
+    if not apply_it:
+        print(f"\n  {DIM}Nothing was changed. Add --apply to merge it in.{RESET}")
+        print(f"  {DIM}A pool profile is community data: the checksum proves the")
+        print(f"  file is intact, not that its author was right.{RESET}\n")
+        return 0
+
+    merged, notes = P.merge(local, doc)
+    P.write(path, merged)
+    print(f"\n  {GREEN}merged{RESET}  {DIM}{path}{RESET}")
+    for n in notes[:20]:
+        print(f"    {n}")
+    print()
+    return 0
+
+
+def cmd_share(slug):
+    import pool as poollib
+    out, warn = poollib.contribution(slug)
+    if not out:
+        for w in warn:
+            print(f"  {w}")
+        return 1
+    print(f"\n  {BOLD}Ready to share{RESET}")
+    print(f"  {out}\n")
+    if warn:
+        print(f"  {YELLOW}Check these first:{RESET}")
+        for w in warn:
+            print(f"    - {w}")
+        print()
+    print("  To contribute it:")
+    print("    1. Fork github.com/mrjamesmyers/omacar")
+    print(f"    2. Copy the file above into profiles/{slug}.toml")
+    print("    3. Add or update the entry in profiles/index.json")
+    print("    4. Open a pull request saying which car you ran it on, and")
+    print("       which entries you checked against something real.\n")
+    return 0
+
+
 def cmd_migrate(arg, make=None, model=None, who=None):
     """Bring a pre-schema draft up to schema 1.
 
@@ -326,6 +409,11 @@ def main(argv):
                    help="what you checked it against — a dash gauge, a second "
                         "tool, a physical change you made")
     s.add_argument("--by")
+    sub.add_parser("pool")
+    s = sub.add_parser("fetch")
+    s.add_argument("profile"); s.add_argument("--pool")
+    s.add_argument("--apply", action="store_true")
+    s = sub.add_parser("share"); s.add_argument("profile")
     s = sub.add_parser("correlate")
     s.add_argument("profile")
     s.add_argument("--apply", action="store_true",
@@ -348,6 +436,12 @@ def main(argv):
         return cmd_merge(args.base, args.incoming, args.out)
     if args.cmd == "promote":
         return cmd_promote(args.profile, args.id, args.against, args.by)
+    if args.cmd == "pool":
+        return cmd_pool()
+    if args.cmd == "fetch":
+        return cmd_fetch(args.profile, args.pool, args.apply)
+    if args.cmd == "share":
+        return cmd_share(args.profile)
     if args.cmd == "correlate":
         return cmd_correlate(args.profile, args.apply, args.by)
     if args.cmd == "migrate":

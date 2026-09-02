@@ -1,0 +1,46 @@
+# OmaCar vehicle profile.
+#
+# confidence:
+#   candidate  The ECU answered.
+#              Nothing more is known — it may be a constant, a part number, or padding.
+#   observed   The bytes were seen to change across samples, so it carries *something*.
+#              What it means is still a guess.
+#   validated  Checked against something real — a gauge on the dash, a second tool, or a physical change somebody made — and it matched.
+#              Safe to drive a display.
+#   refuted    Tried and found wrong.
+#              Kept deliberately, so nobody spends an hour rediscovering that it does not work.
+#
+# An entry below `validated` must not drive a gauge.
+
+schema = 1
+
+[car]
+slug = "honda-crz-2015"
+make = "Honda"
+model = "CR-Z"
+description = "2015 Honda CR-Z (hybrid)"
+protocol = "ISO 15765-4 (CAN 29/500)"
+years = [2011, 2016]
+vin_prefix = "JHMZF1D4"   # model/year only -- never a whole VIN
+
+[meta]
+created = "2026-09-02T07:01:47Z"
+updated = "2026-09-02T07:46:45Z"
+contributors = ["mrjamesmyers"]
+checksum = "sha256:ae68d979217c37d40c812598e86ef1d4bd1ee3505a88aab91a2663c0cb494620"   # integrity, NOT a signature
+
+[[pid]]
+id = "18da03f1_22f181"
+header = "18DA03F1"
+request = "22F181"
+service = 0x22
+payload_len = 4
+varying_bytes = []
+confidence = "candidate"
+
+  [pid.provenance]
+  found_by = "mrjamesmyers"
+  found_on = "2015 Honda CR-Z"
+  method = "migrated from a pre-schema draft"
+  first_seen = "20260901"
+  note = "provenance was not recorded before schema 1"
