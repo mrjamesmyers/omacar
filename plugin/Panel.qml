@@ -405,6 +405,15 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
+    // A WIDER, larger canvas than a bar icon normally gets.
+    //
+    // BarIconButton draws iconComponent into a square of Style.bar.iconCanvas,
+    // which is 16px. A 3.3:1 coupe in a 16px square is 16 wide and 4.8 tall,
+    // and 4.8px of height is why it reads as small. Growing the canvas grows
+    // the car proportionally; the slot grows with it so the neighbouring
+    // widgets keep their spacing instead of being crowded.
+    opticalSize: 38
+    slotSize: 42
     // Lit when the engine is turning, or when something wants attention now.
     // NOT for any standing fault: a code the car has held since June would
     // leave the icon permanently on, and an indicator that is always lit is
@@ -682,7 +691,9 @@ Panel {
             // the text beside it, and a container sized only to the text would
             // clip it.
             height: Math.max(heroCol.implicitHeight,
-                             root.connected ? heroWheel.height : startBtn.height)
+                             root.connected
+                               ? heroWheel.height + Style.space(8) + stopBtn.height
+                               : startBtn.height)
 
             // The start button lives exactly where the wheel does, because the
             // wheel is meaningless when nothing is reading the car -- and two
@@ -732,9 +743,15 @@ Panel {
             Rectangle {
               id: stopBtn
               visible: root.connected
-              anchors.right: heroWheel.left
-              anchors.rightMargin: Style.space(8)
-              anchors.verticalCenter: heroWheel.verticalCenter
+              // BELOW the car, centred under it, rather than beside it.
+              //
+              // Sitting to its left the button competed with the vehicle name
+              // for the same horizontal band and pushed the text into a
+              // narrower column than it needed. Under the car it reads as
+              // belonging to the car, and the name gets the full width.
+              anchors.top: heroWheel.bottom
+              anchors.topMargin: Style.space(8)
+              anchors.horizontalCenter: heroWheel.horizontalCenter
               // A word, not a glyph. "Stop" cannot be mistaken for pause,
               // eject, or record the way a small square can, and this is the
               // control that severs the link to the car.
@@ -799,7 +816,10 @@ Panel {
               // children a real width to elide and wrap against, which
               // `width: heroCol.width` was previously resolving circularly.
               anchors.left: parent.left
-              anchors.right: root.connected ? stopBtn.left : startBtn.left
+              // Against the CAR now, not the Stop button. The button moved below
+              // the car, so anchoring the text to it would let the name run right
+              // underneath the artwork.
+              anchors.right: root.connected ? heroWheel.left : startBtn.left
               anchors.rightMargin: Style.space(10)
               spacing: Style.space(3)
 
