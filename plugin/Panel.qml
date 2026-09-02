@@ -38,6 +38,7 @@ Panel {
   readonly property string cache: home + "/.local/state/omarchy/liquid-glass-car.json"
   readonly property string liveFile: home + "/.local/state/omacar/live.json"
   readonly property string alertFile: home + "/.local/state/omacar/alerts.json"
+  readonly property string dismissFile: home + "/.local/state/omacar/dismissed.json"
 
   // Omarchy's caption token is 10px and its body 12px, sized for a bar where a
   // label is glanced at. This panel is read, so everything scales off those
@@ -72,6 +73,14 @@ Panel {
   readonly property color cAmber:  "#FF9F0A"
   readonly property color cRed:    "#FF453A"
   readonly property color cBlue:   "#0A84FF"
+  // The notification card: dark blue with light text, fixed rather than
+  // theme-derived. These cards carry the one thing in the panel you must be
+  // able to read at a glance in a moving car, so they keep their own contrast
+  // instead of inheriting whatever a night theme has done to the foreground.
+  readonly property color cCard:      "#12294A"
+  readonly property color cCardHover: "#193762"
+  readonly property color cCardInk:   "#EAF2FF"
+  readonly property color cCardSub:   "#9FB8D8"
   readonly property color cCyan:   "#64D2FF"
 
   property string tab: "now"
@@ -186,9 +195,75 @@ Panel {
   // Worth lighting the bar for: something is past due, or a code has set in
   // the last few days. A fault that has been standing since the spring is on
   // the card and in the panel; it does not get to own the menu bar.
-  readonly property var alertCount: root.alerts.recent || ({})
-  readonly property int criticalAlerts: alertCount.critical || 0
-  readonly property int dayAlerts: (alertCount.critical || 0) + (alertCount.normal || 0)
+  // Dismissals: which notifications this user has already dealt with.
+  //
+  // The watchdog owns alerts.json and rewrites it whenever anything happens,
+  // so the panel must never write there -- a dismissal and a new alert landing
+  // together would lose one of them. Dismissals live in their own file that
+  // only the panel writes, and the two are combined at read time.
+  property var dismissed: ({})
+  // Keys written this session but not yet confirmed on disk. Without these a
+  // dismissal would reappear for the second or so between the click and the
+  // next read of the file.
+  property var pendingDismiss: []
+
+  // Identity for an alert, which the feed does not give us. `at` alone is not
+  // enough -- two alerts can share a second -- so the text is folded in via
+  // FNV-1a. The result is hex, which matters: this key is passed through a
+  // shell, and a key that cannot contain a quote cannot become a quoting bug.
+  function alertKey(a) {
+    var t = (a.title || "") + "\u0000" + (a.body || "")
+    var h = 2166136261
+    for (var i = 0; i < t.length; i++) {
+      h ^= t.charCodeAt(i)
+      h = (h * 16777619) >>> 0
+    }
+    return String(a.at || 0) + "-" + h.toString(16)
+  }
+
+  function isDismissed(a) {
+    var k = root.alertKey(a)
+    if (root.pendingDismiss.indexOf(k) >= 0) return true
+    var before = root.dismissed.before || 0
+    if (before > 0 && (a.at || 0) <= before) return true
+    var ids = root.dismissed.ids || []
+    return ids.indexOf(k) >= 0
+  }
+
+  readonly property var liveAlerts: {
+    var all = root.alerts.alerts || []
+    var out = []
+    for (var i = 0; i < all.length; i++)
+      if (!root.isDismissed(all[i])) out.push(all[i])
+    return out
+  }
+
+  // Counted here rather than taken from the feed's own rollup, because the
+  // rollup does not know what has been dismissed -- and a badge that survives
+  // dismissing the thing it counts is a badge people learn to ignore.
+  readonly property int criticalAlerts: {
+    var n = 0
+    for (var i = 0; i < root.liveAlerts.length; i++)
+      if (root.liveAlerts[i].urgency === "critical"
+          && root.nowSec - (root.liveAlerts[i].at || 0) < 86400) n++
+    return n
+  }
+  readonly property int dayAlerts: {
+    var n = 0
+    for (var i = 0; i < root.liveAlerts.length; i++) {
+      var u = root.liveAlerts[i].urgency
+      if ((u === "critical" || u === "normal")
+          && root.nowSec - (root.liveAlerts[i].at || 0) < 86400) n++
+    }
+    return n
+  }
+
+  // Whether the notifications page is showing instead of the panel body.
+  property bool notifOpen: false
+  // Whichever page is showing. The panel, its scrollbar and its flick gesture
+  // all size off this -- pointing them at `column` alone left the notifications
+  // page unscrollable, because `column` is hidden while it is up.
+  readonly property real bodyHeight: root.notifOpen ? notifCol.implicitHeight : column.implicitHeight
 
   readonly property bool attention: {
     if (root.criticalAlerts > 0) return true
@@ -337,6 +412,103 @@ Panel {
   }
 
   Process {
+    id: loadDismissed
+    command: ["bash", "-c", "cat \"$1\" 2>/dev/null || echo '{}'", "x", root.dismissFile]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var d
+        try {
+          d = JSON.parse(text)
+        } catch (e) {
+          return
+        }
+        if (!d || typeof d !== "object")
+          return
+        // Anything the file now confirms can stop being carried locally.
+        var ids = d.ids || []
+        var still = []
+        for (var i = 0; i < root.pendingDismiss.length; i++)
+          if (ids.indexOf(root.pendingDismiss[i]) < 0)
+            still.push(root.pendingDismiss[i])
+        if (still.length !== root.pendingDismiss.length)
+          root.pendingDismiss = still
+        if (JSON.stringify(d) !== JSON.stringify(root.dismissed))
+          root.dismissed = d
+      }
+    }
+  }
+
+  Process {
+    id: writeDismiss
+    // python3 rather than jq: jq is not a given on a fresh Omarchy box, and
+    // the app already depends on python. The write is to a temp file and then
+    // renamed, so a panel closing mid-write cannot leave a truncated file that
+    // would silently un-dismiss everything.
+    command: ["bash", "-c",
+      "python3 - \"$1\" \"$2\" \"$3\" <<\"PYEOF\"\n"
+      + "import json, os, sys\n"
+      + "p, k, before = sys.argv[1], sys.argv[2], int(sys.argv[3])\n"
+      + "try:\n"
+      + "    d = json.load(open(p))\n"
+      + "except Exception:\n"
+      + "    d = {}\n"
+      + "if not isinstance(d, dict):\n"
+      + "    d = {}\n"
+      + "ids = d.get(\"ids\") or []\n"
+      + "if k and k not in ids:\n"
+      + "    ids.append(k)\n"
+      + "if before:\n"
+      + "    d[\"before\"] = max(before, int(d.get(\"before\") or 0))\n"
+      + "    ids = [x for x in ids if int(x.split(\"-\")[0] or 0) > d[\"before\"]]\n"
+      + "d[\"ids\"] = ids[-500:]\n"
+      + "os.makedirs(os.path.dirname(p), exist_ok=True)\n"
+      + "t = p + \".tmp\"\n"
+      + "f = open(t, \"w\")\n"
+      + "json.dump(d, f)\n"
+      + "f.close()\n"
+      + "os.replace(t, p)\n"
+      + "PYEOF\n",
+      "x", root.dismissFile, "", "0"]
+    onExited: if (!loadDismissed.running) loadDismissed.running = true
+  }
+
+  function dismissAlert(a) {
+    var k = root.alertKey(a)
+    // Hide it NOW, and record it. The local list is what makes the card
+    // vanish on the click rather than on the next read of the file.
+    var pend = root.pendingDismiss.slice()
+    if (pend.indexOf(k) < 0)
+      pend.push(k)
+    root.pendingDismiss = pend
+    if (writeDismiss.running)
+      return
+    writeDismiss.command = writeDismiss.command.slice(0, 3).concat(["x", root.dismissFile, k, "0"])
+    writeDismiss.running = true
+  }
+
+  function dismissAllAlerts() {
+    // A watermark rather than 500 individual keys: everything at or before the
+    // newest alert we can currently see goes away, and the file stays small
+    // however long the car has been running.
+    var all = root.alerts.alerts || []
+    var newest = 0
+    for (var i = 0; i < all.length; i++)
+      newest = Math.max(newest, all[i].at || 0)
+    if (newest <= 0)
+      return
+    var pend = root.pendingDismiss.slice()
+    for (var j = 0; j < all.length; j++)
+      if (pend.indexOf(root.alertKey(all[j])) < 0)
+        pend.push(root.alertKey(all[j]))
+    root.pendingDismiss = pend
+    if (writeDismiss.running)
+      return
+    writeDismiss.command = writeDismiss.command.slice(0, 3).concat(["x", root.dismissFile, "", String(newest)])
+    writeDismiss.running = true
+  }
+
+  Process {
     id: loadLive
     command: ["bash", "-c", "cat \"$1\" 2>/dev/null || echo '{}'", "x", root.liveFile]
     stdout: StdioCollector {
@@ -376,15 +548,23 @@ Panel {
     running: true
     repeat: true
     triggeredOnStart: true
-    onTriggered: if (!loadAlerts.running) loadAlerts.running = true
+    onTriggered: {
+      if (!loadAlerts.running) loadAlerts.running = true
+      if (!loadDismissed.running) loadDismissed.running = true
+    }
   }
 
   // Re-read the moment the panel opens — nobody wants a reading from a minute
   // ago while staring at the thing that shows it.
   onOpenedChanged: {
+    // Always come back to the panel itself. Reopening onto the notifications
+    // page -- most likely emptied, since that is why you were there -- would
+    // look like the panel had lost its contents.
+    notifOpen = false
     if (!opened) return
     if (!loadCache.running) loadCache.running = true
     if (!loadLive.running) loadLive.running = true
+    if (!loadDismissed.running) loadDismissed.running = true
   }
 
   Process { id: act }
@@ -421,7 +601,16 @@ Panel {
     active: root.engineOn || root.attention
 
     iconComponent: Car {
-      tint: button.active && button.useActiveColor ? button.activeColor : button.foreground
+      // GREEN whenever the link to the car is live.
+      //
+      // "active" already lights the button for engine-on or an alert, but both
+      // of those are transient -- they say something is happening, not that
+      // OmaCar is talking to the car at all. Connected is the state you glance
+      // at the bar to check, so it gets the colour. cGreen is the same green
+      // the "no faults" pill uses, so green means the same thing everywhere.
+      tint: root.connected
+              ? root.cGreen
+              : (button.active && button.useActiveColor ? button.activeColor : button.foreground)
       running: root.engineOn
       // A quarter turn while moving. Not a spin — a wheel that never stops
       // turning is a busy indicator, and this one means "the car is going
@@ -560,6 +749,45 @@ Panel {
     }
   }
 
+  // A pill with a word in it. Every action in the hero takes this shape, so
+  // the group reads as one set of controls rather than three widgets that
+  // happen to sit near each other.
+  component PillButton: Rectangle {
+    id: pb
+    property string label: ""
+    property real fade: 1.0
+    signal pressed
+
+    width: pbText.implicitWidth + Style.space(18)
+    height: Style.space(26)
+    radius: height / 2
+    color: pbMouse.containsMouse ? root.dim(0.22) : root.dim(0.10)
+    border.width: 1
+    border.color: root.dim(0.32)
+    opacity: pb.fade
+    Behavior on color {
+      ColorAnimation { duration: 120 }
+    }
+
+    Text {
+      id: pbText
+      anchors.centerIn: parent
+      text: pb.label
+      color: root.fg
+      font.family: root.bar.fontFamily
+      font.pixelSize: Math.round(Style.font.caption)
+      font.weight: Font.Medium
+    }
+
+    MouseArea {
+      id: pbMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: pb.pressed()
+    }
+  }
+
   // One figure with its name above it and its qualifier below — the shape
   // every number in this panel takes, so four of them read as a row rather
   // than as four separate facts.
@@ -654,12 +882,20 @@ Panel {
     open: root.opened
     focusTarget: keys
     contentWidth: panel.fittedContentWidth(Style.space(468))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight)
+    contentHeight: panel.fittedContentHeight(root.bodyHeight)
 
     PanelKeyCatcher {
       id: keys
       anchors.fill: parent
-      onCloseRequested: root.close()
+      // Back out of notifications first: Escape on a sub-page should return
+      // you to the panel, not shut the whole thing and leave you on that page
+      // the next time you open it.
+      onCloseRequested: {
+        if (root.notifOpen)
+          root.notifOpen = false;
+        else
+          root.close();
+      }
 
       // The panel is capped to the screen by fittedContentHeight, but a cap
       // without a scroller just clips: on this laptop the content ran off the
@@ -672,17 +908,195 @@ Panel {
         anchors.fill: parent
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-        ScrollBar.vertical.policy: column.implicitHeight > height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+        ScrollBar.vertical.policy: root.bodyHeight > height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
         Binding {
           target: scrollArea.contentItem
           property: "interactive"
-          value: column.implicitHeight > scrollArea.height
+          value: root.bodyHeight > scrollArea.height
+        }
+
+        // ---- notifications, on their own page --------------------------
+        Column {
+          id: notifCol
+          width: scrollArea.availableWidth
+          spacing: Style.space(8)
+          visible: root.notifOpen
+
+          Item {
+            width: notifCol.width
+            height: Math.max(backBtn.height, clearBtn.height)
+
+            PillButton {
+              id: backBtn
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              label: "\u2039  Back"
+              onPressed: root.notifOpen = false
+            }
+
+            Text {
+              anchors.centerIn: parent
+              text: "Notifications"
+              color: root.fg
+              font.family: root.bar.fontFamily
+              font.pixelSize: root.fBody
+              font.weight: Font.Medium
+            }
+
+            PillButton {
+              id: clearBtn
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              visible: root.liveAlerts.length > 0
+              label: "Dismiss all"
+              onPressed: root.dismissAllAlerts()
+            }
+          }
+
+          Item {
+            width: notifCol.width
+            height: Style.space(2)
+          }
+
+          // Nothing left is a RESULT, not an empty screen -- say so, rather
+          // than showing a page that looks like it failed to load.
+          Item {
+            visible: root.liveAlerts.length === 0
+            width: notifCol.width
+            height: Style.space(70)
+
+            Column {
+              anchors.centerIn: parent
+              spacing: Style.space(4)
+
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "All clear"
+                color: root.fg
+                font.family: root.bar.fontFamily
+                font.pixelSize: root.fBody
+              }
+
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "Nothing waiting for you."
+                color: root.dim(0.45)
+                font.family: root.bar.fontFamily
+                font.pixelSize: root.fCaption
+              }
+            }
+          }
+
+          Repeater {
+            model: root.liveAlerts
+
+            Rectangle {
+              id: card
+              required property var modelData
+              width: notifCol.width
+              height: cardCol.implicitHeight + Style.space(20)
+              radius: Style.space(8)
+              color: cardMouse.containsMouse ? root.cCardHover : root.cCard
+              // Severity rides the border, so the fill can stay the one blue
+              // the user asked for and still tell a warning from a note.
+              border.width: 1
+              border.color: card.modelData.urgency === "critical" ? Qt.rgba(root.cRed.r, root.cRed.g, root.cRed.b, 0.55) : card.modelData.urgency === "normal" ? Qt.rgba(root.cAmber.r, root.cAmber.g, root.cAmber.b, 0.45) : Qt.rgba(1, 1, 1, 0.10)
+              Behavior on color {
+                ColorAnimation { duration: 120 }
+              }
+
+              MouseArea {
+                id: cardMouse
+                anchors.fill: parent
+                hoverEnabled: true
+              }
+
+              Column {
+                id: cardCol
+                anchors.left: parent.left
+                anchors.right: dropBtn.left
+                anchors.leftMargin: Style.space(12)
+                anchors.rightMargin: Style.space(8)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(3)
+
+                Row {
+                  spacing: Style.space(8)
+
+                  Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Style.space(8)
+                    height: width
+                    radius: width / 2
+                    color: card.modelData.urgency === "critical" ? root.cRed : card.modelData.urgency === "normal" ? root.cAmber : root.cBlue
+                  }
+
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: card.modelData.title || ""
+                    color: root.cCardInk
+                    font.family: root.bar.fontFamily
+                    font.pixelSize: root.fCaption
+                    font.weight: Font.Medium
+                  }
+
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.since(root.nowSec - (card.modelData.at || 0))
+                    color: root.cCardSub
+                    font.family: root.bar.fontFamily
+                    font.pixelSize: root.fMicro
+                  }
+                }
+
+                Text {
+                  width: cardCol.width
+                  text: card.modelData.body || ""
+                  color: root.cCardSub
+                  wrapMode: Text.WordWrap
+                  leftPadding: Style.space(16)
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: root.fCaption
+                }
+              }
+
+              // Dismiss. A hit area far larger than the glyph, because this is
+              // reachable from a touchscreen in a car.
+              Rectangle {
+                id: dropBtn
+                anchors.right: parent.right
+                anchors.rightMargin: Style.space(6)
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(28)
+                height: width
+                radius: width / 2
+                color: dropMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.16) : "transparent"
+
+                Text {
+                  anchors.centerIn: parent
+                  text: "\u00D7"
+                  color: dropMouse.containsMouse ? root.cCardInk : root.cCardSub
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: root.fBody
+                }
+
+                MouseArea {
+                  id: dropMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.dismissAlert(card.modelData)
+                }
+              }
+            }
+          }
         }
 
         Column {
           id: column
           width: scrollArea.availableWidth
           spacing: Style.space(12)
+          visible: !root.notifOpen
 
           // ---- who, and what it is doing ----
           Item {
@@ -691,9 +1105,8 @@ Panel {
             // the text beside it, and a container sized only to the text would
             // clip it.
             height: Math.max(heroCol.implicitHeight,
-                             root.connected
-                               ? heroWheel.height + Style.space(8) + stopBtn.height
-                               : startBtn.height)
+                             (root.connected ? heroWheel.height : startBtn.height)
+                               + Style.space(8) + heroBtns.height)
 
             // The start button lives exactly where the wheel does, because the
             // wheel is meaningless when nothing is reading the car -- and two
@@ -705,8 +1118,8 @@ Panel {
               anchors.top: parent.top
               // Same corner as the car, for the reason the comment above gives.
               // Neither had a horizontal anchor, so "the corner" they were
-              // sharing was the LEFT one, with stopBtn and the text column
-              // anchored to their left and therefore off the panel.
+              // sharing was the LEFT one, with the button row and the text
+              // column anchored to their left and therefore off the panel.
               anchors.right: parent.right
               width: Style.space(40)
               height: width
@@ -736,49 +1149,42 @@ Panel {
               }
             }
 
-            // Stop sits BESIDE the car, not on it. Making the icon itself the
-            // stop control would put "disconnect from the car" one stray tap
-            // away from the thing you look at to check the car -- and on a
-            // touchscreen in a moving vehicle that is a bad trade.
-            Rectangle {
-              id: stopBtn
-              visible: root.connected
-              // BELOW the car, centred under it, rather than beside it.
-              //
-              // Sitting to its left the button competed with the vehicle name
-              // for the same horizontal band and pushed the text into a
-              // narrower column than it needed. Under the car it reads as
-              // belonging to the car, and the name gets the full width.
-              anchors.top: heroWheel.bottom
+            // EVERY action in one row, right-aligned under the car.
+            //
+            // Open cluster and Refresh used to live in the footer, at the far
+            // end of a scrolling panel -- so the two controls you reach for
+            // most were the two you had to scroll to find. Up here all of them
+            // are visible the moment the panel opens.
+            //
+            // Stop is deliberately the LEFTMOST of the three. It severs the
+            // link to the car, and the right edge is where a thumb rests on a
+            // touchscreen in a moving vehicle; the harmless action gets that
+            // spot instead.
+            Row {
+              id: heroBtns
+              anchors.top: root.connected ? heroWheel.bottom : startBtn.bottom
               anchors.topMargin: Style.space(8)
-              anchors.horizontalCenter: heroWheel.horizontalCenter
-              // A word, not a glyph. "Stop" cannot be mistaken for pause,
-              // eject, or record the way a small square can, and this is the
-              // control that severs the link to the car.
-              width: stopLabel.implicitWidth + Style.space(18)
-              height: Style.space(26)
-              radius: height / 2
-              color: stopMouse.containsMouse ? root.dim(0.22) : root.dim(0.10)
-              border.width: 1
-              border.color: root.dim(0.32)
-              opacity: root.daemonStopping ? 0.5 : 1
+              anchors.right: parent.right
+              spacing: Style.space(6)
 
-              Text {
-                id: stopLabel
-                anchors.centerIn: parent
-                text: root.daemonStopping ? "Stopping" : "Stop"
-                color: root.fg
-                font.family: root.bar.fontFamily
-                font.pixelSize: Math.round(Style.font.caption)
-                font.weight: Font.Medium
+              PillButton {
+                visible: root.connected
+                label: root.daemonStopping ? "Stopping" : "Stop"
+                fade: root.daemonStopping ? 0.5 : 1
+                onPressed: root.stopOmaCar()
               }
 
-              MouseArea {
-                id: stopMouse
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.stopOmaCar()
+              PillButton {
+                label: "Open cluster"
+                onPressed: {
+                  root.openCluster();
+                  root.close();
+                }
+              }
+
+              PillButton {
+                label: "Refresh"
+                onPressed: root.refreshNow()
               }
             }
 
@@ -789,8 +1195,8 @@ Panel {
               // UPPER RIGHT, and big.
               //
               // It had no horizontal anchor at all, so it sat at x=0 while
-              // stopBtn and heroCol anchored themselves to its left -- which
-              // put them at negative x, off the panel. The corner the comment
+              // heroCol anchored itself to its left -- which put the text at
+              // negative x, off the panel. The corner the comment
               // above startBtn talks about was never actually being used.
               anchors.right: parent.right
               // A proportion of the panel rather than a fixed size, so it stays
@@ -936,56 +1342,76 @@ Panel {
             spacing: Style.space(11)
             visible: root.tab === "now"
 
-            // What the watchdog raised, above everything else on the tab: this
-            // is the car telling you something happened while you were not
-            // looking, and it outranks a reading you could go and take.
-            Repeater {
-              model: (root.alerts.alerts || []).slice(0, 3)
+            // ONE line, not the list.
+            //
+            // Three alert cards stacked here pushed the speed, the odometer
+            // and everything else below the fold -- and this feed is mostly
+            // "OmaCar is watching", which nobody opens the panel to read. The
+            // count and the newest headline are what the glance is for; the
+            // rest is a tap away on its own page.
+            Rectangle {
+              visible: root.liveAlerts.length > 0
+              width: parent.width
+              height: Style.space(40)
+              radius: Style.space(8)
+              color: notifSumMouse.containsMouse ? root.cCardHover : root.cCard
+              Behavior on color {
+                ColorAnimation { duration: 120 }
+              }
 
               Rectangle {
-                required property var modelData
-                width: parent.width
-                height: alertCol.implicitHeight + Style.space(18)
-                radius: Style.space(8)
-                color: modelData.urgency === "critical" ? root.dim(0.10) : root.dim(0.06)
-                border.width: 1
-                border.color: modelData.urgency === "critical"
-                  ? Qt.rgba(root.cRed.r, root.cRed.g, root.cRed.b, 0.45)
-                  : modelData.urgency === "normal"
-                    ? Qt.rgba(root.cAmber.r, root.cAmber.g, root.cAmber.b, 0.38)
-                    : root.dim(0.12)
+                id: sumDot
+                anchors.left: parent.left
+                anchors.leftMargin: Style.space(12)
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(8)
+                height: width
+                radius: width / 2
+                color: root.criticalAlerts > 0 ? root.cRed : root.dayAlerts > 0 ? root.cAmber : root.cBlue
+              }
 
-                Column {
-                  id: alertCol
-                  anchors.verticalCenter: parent.verticalCenter
-                  anchors.margins: Style.space(10)
-                  spacing: Style.space(3)
+              Text {
+                id: sumCount
+                anchors.left: sumDot.right
+                anchors.leftMargin: Style.space(9)
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.liveAlerts.length + (root.liveAlerts.length === 1 ? " notification" : " notifications")
+                color: root.cCardInk
+                font.family: root.bar.fontFamily
+                font.pixelSize: root.fCaption
+                font.weight: Font.Medium
+              }
 
-                  Row {
-                    spacing: Style.space(8)
-                    Rectangle {
-                      width: Style.space(8); height: width; radius: width / 2
-                      anchors.verticalCenter: parent.verticalCenter
-                      color: modelData.urgency === "critical" ? root.cRed
-                           : modelData.urgency === "normal" ? root.cAmber : root.cBlue
-                    }
-                    Body {
-                      text: modelData.title || ""
-                      anchors.verticalCenter: parent.verticalCenter
-                    }
-                    Muted {
-                      text: root.since(root.nowSec - (modelData.at || 0))
-                      anchors.verticalCenter: parent.verticalCenter
-                    }
-                  }
+              Text {
+                anchors.left: sumCount.right
+                anchors.leftMargin: Style.space(9)
+                anchors.right: sumChev.left
+                anchors.rightMargin: Style.space(8)
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.liveAlerts.length > 0 ? root.liveAlerts[0].title || "" : ""
+                color: root.cCardSub
+                elide: Text.ElideRight
+                font.family: root.bar.fontFamily
+                font.pixelSize: root.fCaption
+              }
 
-                  Muted {
-                    width: parent.width
-                    text: modelData.body || ""
-                    wrapMode: Text.WordWrap
-                    leftPadding: Style.space(16)
-                  }
-                }
+              Text {
+                id: sumChev
+                anchors.right: parent.right
+                anchors.rightMargin: Style.space(12)
+                anchors.verticalCenter: parent.verticalCenter
+                text: "\u203A"
+                color: root.cCardSub
+                font.family: root.bar.fontFamily
+                font.pixelSize: root.fBody
+              }
+
+              MouseArea {
+                id: notifSumMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.notifOpen = true
               }
             }
 
@@ -1706,28 +2132,16 @@ Panel {
           // ---- footer ----
           Item {
             width: column.width
-            height: footRow.implicitHeight
+            height: stamp.implicitHeight
 
-            Row {
-              id: footRow
-              spacing: Style.space(8)
-
-              TextButton {
-                label: "Open cluster"
-                onPressed: { root.openCluster(); root.close() }
-              }
-
-              TextButton {
-                label: "Refresh"
-                onPressed: root.refreshNow()
-              }
-            }
-
+            // Just the timestamp now that both buttons have moved to the hero.
+            // It had been anchored only vertically, which left it at x=0 --
+            // sitting underneath "Open cluster" rather than beside it.
             Muted {
-              anchors.verticalCenter: footRow.verticalCenter
+              id: stamp
+              anchors.left: parent.left
               color: root.dim(0.35)
-              text: root.car.checked
-                ? "updated " + root.since(root.nowSec - root.car.checked) : ""
+              text: root.car.checked ? "updated " + root.since(root.nowSec - root.car.checked) : ""
             }
           }
         }
