@@ -174,10 +174,48 @@ class Elm:
         is cheaper than a full re-init and does not disturb the protocol)."""
         self.at("ST00")          # 00 means "use the default"
 
+    def payload(self, lines, request=None):
+        """Reassemble a reply using THIS connection's protocol.
+
+        Callers used to call the module-level reassemble() directly, which
+        defaults to ISO-TP -- correct on CAN and quietly wrong everywhere else.
+        There were eight such call sites, and every one of them would have had
+        to remember. Asking the connection, which already knows what it
+        negotiated, removes the chance to forget.
+        """
+        iso_tp, digits = True, None
+        if self.protocol:
+            try:
+                import protocols
+                p = protocols.describe(self.protocol)
+                if p:
+                    iso_tp = p["iso_tp"]
+                    digits = p["header_digits"]
+            except ImportError:
+                pass
+        return reassemble(lines, request=request, iso_tp=iso_tp,
+                          header_digits=digits)
+
     def set_header(self, header):
-        if header != self.header:
-            self.at("SH" + header)
-            self.header = header
+        """Set the target address, refusing a shape this protocol cannot use.
+
+        A header of the wrong width is accepted by the adapter and then simply
+        never answered by the car -- indistinguishable from a module that is
+        not there. Catching it here turns hours of "0 responders" into one
+        clear sentence.
+        """
+        if header == self.header:
+            return
+        if self.protocol:
+            try:
+                import protocols
+                ok, why = protocols.header_ok(self.protocol, header)
+                if not ok:
+                    raise ValueError("omacar: " + why)
+            except ImportError:
+                pass
+        self.at("SH" + header)
+        self.header = header
 
     # -- requests ----------------------------------------------------------
 
@@ -273,8 +311,15 @@ def classify(lines, service, request=None):
     return "silent", lines[0][:40], ""
 
 
-def reassemble(lines, request=None):
-    """ELM327 CAN lines -> one continuous payload hex string.
+def reassemble(lines, request=None, iso_tp=True, header_digits=None):
+    """ELM327 lines -> one continuous payload hex string.
+
+    `iso_tp` MUST be False on anything that is not CAN. ISO-TP's
+    first-frame/consecutive-frame numbering is a CAN construct; on J1850 or
+    ISO 9141 a long reply arrives as repeated lines each carrying the full
+    header, and the leading data byte of each would be read as a PCI byte.
+    That does not fail loudly -- it produces a plausible-looking payload with
+    bytes missing and invented, which is worse than an error.
 
     WHY classify() IS NOT ENOUGH.
 
@@ -292,6 +337,20 @@ def reassemble(lines, request=None):
         2S              consecutive frame, sequence S (wraps 0-F), 7 data bytes
     Trailing 0x55 padding in the final frame is cut by the declared length.
     """
+    if not iso_tp:
+        # Flat concatenation: strip each line's header and join. There are no
+        # sequence numbers to honour and none to misread.
+        flat = ""
+        for ln in lines:
+            body = ln.replace(" ", "").upper()
+            if not body or (request and body == request.replace(" ", "").upper()):
+                continue
+            if not all(c in "0123456789ABCDEF" for c in body):
+                continue
+            n = header_digits if header_digits else 6
+            flat += body[n:] if len(body) > n else ""
+        return flat
+
     out, total, seen_ff = "", None, False
     for ln in lines:
         body = ln.replace(" ", "").upper()

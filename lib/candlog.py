@@ -49,12 +49,11 @@ TRUSTED_PIDS = [
 ]
 
 
-def _payload(elmlib, lines, service, req):
+def _payload(el, elmlib, lines, service, req):
     kind, _detail, _ = elmlib.classify(lines, service, request=req)
     if kind != "positive":
         return None
-    data = elmlib.reassemble(lines, request=req)
-    return data or None
+    return el.payload(lines, request=req) or None
 
 
 def read_trusted(el, elmlib):
@@ -63,7 +62,7 @@ def read_trusted(el, elmlib):
     el.set_header("7DF")
     for req, name, decode in TRUSTED_PIDS:
         try:
-            data = _payload(elmlib, el.request(req), 0x01, req)
+            data = _payload(el, elmlib, el.request(req), 0x01, req)
         except Exception:                                     # noqa: BLE001
             data = None
         if not data:
@@ -85,7 +84,7 @@ def read_candidates(el, elmlib, cands):
         try:
             el.set_header(c["header"])
             lines = el.raw(c["request"], patient=True, timeout=4.0)
-            data = _payload(elmlib, lines, int(c["request"][:2], 16), c["request"])
+            data = _payload(el, elmlib, lines, int(c["request"][:2], 16), c["request"])
         except Exception:                                     # noqa: BLE001
             data = None
         if data:

@@ -56,7 +56,7 @@ def sample_once(el, headers, want_catalogue):
             if kind != "positive":
                 mod[key] = {"kind": kind, "detail": detail}
                 continue
-            data = elmlib.reassemble(lines, request=req)
+            data = el.payload(lines, request=req)
             if key == "count":
                 try:
                     mod[key] = {"kind": kind, "count": int(data[8:12], 16)}
@@ -72,7 +72,7 @@ def sample_once(el, headers, want_catalogue):
             lines = el.raw(req, patient=True, timeout=8.0)
             kind, _, _ = elmlib.classify(lines, dtclib.SERVICE, request=req)
             if kind == "positive":
-                data = elmlib.reassemble(lines, request=req)
+                data = el.payload(lines, request=req)
                 mod["catalogue"] = {
                     "raw": data,
                     "dtcs": [c for c, _ in dtclib.parse_dtc_list(data, 2)]}

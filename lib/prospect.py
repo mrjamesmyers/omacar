@@ -153,6 +153,28 @@ def main(argv):
     print(f"\n  {BOLD}OmaCar prospector{RESET}  {DIM}{port} ({kind}){RESET}")
     el.init()
 
+    # Pace the sweep for the wire it is actually on.
+    #
+    # These timings were tuned on 500 kbaud CAN. ISO 9141-2 runs at 10.4 kbaud
+    # and needs an order of magnitude longer before silence means anything --
+    # applied unchanged, a healthy slow car times out on every request and
+    # reports as having nothing to say.
+    import protocols
+    prof = protocols.describe(el.protocol)
+    pace = protocols.pacing(el.protocol)
+    if prof:
+        print(f"  {DIM}{protocols.summary(el.protocol)}{RESET}")
+        if not prof["verified"]:
+            print(f"  {YELLOW}This protocol has not been tested by this "
+                  f"project.{RESET} Results are worth reporting either way.")
+    if args.delay == 0.06:            # untouched default: follow the protocol
+        args.delay = pace["delay"]
+    if pace.get("atst"):
+        try:
+            el.set_timeout(int(pace["atst"], 16) * 4)
+        except (ValueError, AttributeError, TypeError):
+            pass
+
     # The safety gate. A sweep floods the bus with unknown requests; doing
     # that while the car is moving is not a risk worth taking for data.
     if kind == "bench":

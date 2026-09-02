@@ -68,7 +68,7 @@ def road_speed(el, elmlib):
         kind, _d, _ = elmlib.classify(lines, 0x01, "010D")
         if kind != "positive":
             return None
-        data = elmlib.reassemble(lines, request="010D")
+        data = el.payload(lines, request="010D")
         if not data or len(data) < 6:
             return None
         return float(int(data[4:6], 16))
@@ -82,7 +82,7 @@ def engine_running(el, elmlib):
         kind, _d, _ = elmlib.classify(lines, 0x01, "010C")
         if kind != "positive":
             return False
-        data = elmlib.reassemble(lines, request="010C")
+        data = el.payload(lines, request="010C")
         if not data or len(data) < 8:
             return False
         return (int(data[4:8], 16) / 4.0) > 250

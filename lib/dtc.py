@@ -124,7 +124,7 @@ def probe(el, header, on_line):
         kind, detail, _first = elmlib.classify(lines, SERVICE, request=req)
         # classify() decides supported-or-not from any single frame, which it
         # does correctly. The payload has to be rebuilt across frames.
-        data = elmlib.reassemble(lines, request=req) if kind == "positive" else ""
+        data = el.payload(lines, request=req) if kind == "positive" else ""
         row = {"header": header, "sub": sub, "name": name, "meaning": meaning,
                "kind": kind, "detail": detail, "data": data, "dtcs": []}
         if kind == "positive":

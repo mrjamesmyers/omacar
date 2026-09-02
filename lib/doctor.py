@@ -33,6 +33,17 @@ def main():
     print(f"    source     {port}  {DIM}({kind}){RESET}")
     print(f"    status     {GREEN if connected else RED}{status}{RESET}")
     print(f"    protocol   {proto}")
+    # Say what the protocol MEANS, not just its number. "6" tells somebody
+    # nothing; "CAN 11/500, most cars since 2008" tells them whether the tool
+    # is even on the right kind of wire for their vehicle.
+    try:
+        import protocols as _p
+        _num = str(conn.protocol_id()) if connected else ""
+        _d = _p.describe(_num)
+        if _d:
+            print(f"               {_p.summary(_num)}")
+    except Exception:                                         # noqa: BLE001
+        pass
     print(f"    supported  {len(supported)} commands")
     print()
 
