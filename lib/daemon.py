@@ -26,6 +26,23 @@ LIVE = os.path.join(connect.STATE, "live.json")
 DB = None
 PIDFILE = os.path.join(connect.STATE, "daemon.pid")
 
+# THE "SURVEY NOW" REQUEST FILE.
+#
+# The daemon owns the serial port -- one process, one /dev/ttyUSB0 -- so the
+# API server cannot read the car itself. Before this existed the app's
+# "Scan all systems" button called records.snapshot(), which reads the
+# DATABASE, and dressed the already-stored result in a 190ms-per-module
+# progress animation. The data was real (the daemon had collected it) but the
+# button did not do what it said, and it finished fast enough that the person
+# pressing it correctly suspected it of faking.
+#
+# A file is the right mechanism here rather than a socket or a signal: every
+# other cross-process handoff in OmaCar is a file in the state directory
+# (live.json, bench-pty, daemon.pid), it survives either side restarting, and
+# a daemon that is not running simply never consumes it -- which the API can
+# see and report honestly instead of pretending.
+SURVEY_REQUEST = os.path.join(connect.STATE, "survey-now")
+
 FAST_HZ = 5.0
 MID_EVERY = 5          # fast ticks
 SLOW_EVERY = 25
@@ -57,7 +74,8 @@ def value_of(result):
 
 
 def main():
-    conn, port, kind = connect.connect(timeout=1.0, fast=True)
+    # lease=False: this process is the one the lease exists to move aside.
+    conn, port, kind = connect.connect(timeout=1.0, fast=True, lease=False)
     import obd
 
     if conn.status() != obd.OBDStatus.CAR_CONNECTED:
@@ -101,8 +119,80 @@ def main():
 
     slow_pass()
 
+    def yielded_until():
+        """Deadline on an active lease, or None when there is no live one.
+
+        A lease past its deadline is treated as absent AND removed: a one-off
+        command that crashed must not be able to pause the gauge permanently.
+        """
+        try:
+            with open(connect.PORT_YIELD, encoding="utf-8") as f:
+                until = float(f.read().strip())
+        except (OSError, ValueError):
+            return None
+        if time.time() >= until:
+            try:
+                os.remove(connect.PORT_YIELD)
+            except OSError:
+                pass
+            return None
+        return until
+
+    def hand_over():
+        """Close the port, wait for the lease to end, then take it back."""
+        nonlocal conn, supported, cmds, db
+        publish({"connected": False, "status": "yielded", "port": port,
+                 "note": "a command is using the adapter"})
+        try:
+            conn.close()
+        except Exception:                                     # noqa: BLE001
+            pass
+        while yielded_until():
+            time.sleep(0.3)
+        # Same courtesy in the other direction: the command has just closed the
+        # port and the adapter is mid-teardown.
+        time.sleep(0.6)
+        # Reconnect. survey.prepare() runs again because the VIN decides which
+        # record is open, and a different car could have been plugged in while
+        # we were not looking.
+        for attempt in range(20):
+            try:
+                conn, _p, _k = connect.connect(timeout=1.0, fast=True, lease=False)
+                if conn.status() == obd.OBDStatus.CAR_CONNECTED:
+                    supported = {c.name for c in conn.supported_commands}
+                    cmds.update({tier: [n for n in names if n in supported]
+                                 for tier, names in (("fast", telemetry.FAST),
+                                                     ("mid", telemetry.MID),
+                                                     ("slow", telemetry.SLOW))})
+                    survey.prepare(conn, obd)
+                    db = open_db()
+                    return True
+            except SystemExit:
+                pass
+            except Exception:                                 # noqa: BLE001
+                pass
+            time.sleep(0.5)
+        return False
+
     try:
         while True:
+            # Someone wants the adapter. Step aside rather than make them
+            # believe the cable has failed.
+            if yielded_until():
+                if not hand_over():
+                    publish({"connected": False, "status": "lost", "port": port})
+                    sys.exit("omacar daemon: could not reopen the adapter")
+
+            # An on-demand survey, asked for by the app. Claimed by removing
+            # the file BEFORE the work, so a survey that throws cannot leave a
+            # request behind to be retried every tick forever.
+            if os.path.exists(SURVEY_REQUEST):
+                try:
+                    os.remove(SURVEY_REQUEST)
+                except OSError:
+                    pass
+                slow_pass()
+
             names = list(cmds["fast"])
             if tick % MID_EVERY == 0:
                 names += cmds["mid"]

@@ -9,6 +9,10 @@
 #   omacar doctor             adapter, protocol, supported PIDs, stored faults
 #   omacar live [PID...]      stream readings to the terminal
 #   omacar prospect [opts]    hunt for manufacturer-specific PIDs (read-only)
+#   omacar dtc [opts]         read stored fault data via UDS 0x19 (read-only)
+#   omacar dtclog [opts]      log DTC status periodically during a drive
+#   omacar learn [--deep]     discover this car's modules and what they monitor
+#   omacar write arm|disarm   allow writes (clear codes, tests, settings)
 #   omacar profile [list]     car profiles OmaCar has learned
 #   omacar daemon start|stop|status
 #                             the polling daemon that feeds the cluster
@@ -62,10 +66,18 @@ ours() { [[ "$(curl -fsS --max-time 1 "http://127.0.0.1:$1/.mark" 2>/dev/null)" 
 app_base() {
   local p i
   for p in $PORTS; do ours "$p" && { echo "http://127.0.0.1:$p/app.html"; return; }; done
-  command -v python3 >/dev/null || { echo "file://$APP"; return; }
+  # The venv interpreter when there is one, the system python otherwise.
+  #
+  # serve.py itself needs nothing special, but the API it exposes reaches into
+  # modules that import pyserial -- which lives only in the venv. Started under
+  # the system python, /api/learn could not import the discovery code at all,
+  # so "Learn this car" failed for a reason that had nothing to do with the car.
+  local PY="python3"
+  [[ -x "$OMACAR_PY" ]] && PY="$OMACAR_PY"
+  command -v "$PY" >/dev/null || { echo "file://$APP"; return; }
   for p in $PORTS; do
     ss -ltn "sport = :$p" 2>/dev/null | tail -n +2 | grep -q . && continue
-    setsid -f python3 "$ROOT/lib/serve.py" "$p" "$ROOT/share" >/dev/null 2>&1
+    setsid -f "$PY" "$ROOT/lib/serve.py" "$p" "$ROOT/share" >/dev/null 2>&1
     for i in 1 2 3 4 5 6 7 8 9 10; do
       sleep 0.2
       ours "$p" && { echo "http://127.0.0.1:$p/app.html"; return; }
@@ -463,6 +475,10 @@ case "${1:-open}" in
   doctor) omacar_need_env; exec "$OMACAR_PY" "$ROOT/lib/doctor.py" ;;
   live) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/live.py" "$@" ;;
   prospect) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/prospect.py" "$@" ;;
+  dtc) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/dtc.py" "$@" ;;
+  dtclog) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/dtclog.py" "$@" ;;
+  learn) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/discover.py" "$@" ;;
+  write) shift; exec "$OMACAR_PY" "$ROOT/lib/write.py" "$@" ;;
   profile)
     omacar_need_env
     "$OMACAR_PY" -c "

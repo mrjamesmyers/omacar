@@ -1,0 +1,82 @@
+{
+  "_readme": [
+    "Service reset and functional-test definitions.",
+    "",
+    "WHY THIS FILE IS NEARLY EMPTY, AND WHY THAT IS CORRECT.",
+    "",
+    "Almost every service reset is manufacturer-specific: the same oil-life",
+    "reset is a different routine identifier on a Honda than on a BMW, and on",
+    "some makes it differs between model years. Those identifiers are not",
+    "published, and they CANNOT be discovered the way data identifiers can.",
+    "",
+    "Sweeping service 0x22 to find readable values is safe -- an identifier",
+    "that does not exist answers 'requestOutOfRange' and nothing happens.",
+    "Sweeping service 0x31 to find routines would not be safe at all. A routine",
+    "is a procedure a module RUNS: the number you just guessed might spin a",
+    "cooling fan, cycle an ABS pump, retract a parking brake, or run the engine",
+    "to a target speed. There is no harmless miss.",
+    "",
+    "So this file ships only what is verified, and OmaCar says 'no verified",
+    "resets for this vehicle' rather than offering a guess. An invented routine",
+    "identifier presented as a button is the single most dangerous thing this",
+    "project could ship.",
+    "",
+    "TO CONTRIBUTE ONE: see doc/RESETS.md. A definition needs a source (a",
+    "service manual, an OEM procedure, or a verified capture), the vehicles it",
+    "was confirmed on, and someone willing to say it worked on their own car."
+  ],
+
+  "schema": {
+    "id": "stable identifier, kebab-case",
+    "name": "what a person calls it",
+    "category": "clear | service | test | calibration",
+    "makes": "list of makes it applies to; omit or empty for universal",
+    "models": "optional list of specific models, when it is narrower than a make",
+    "years": "optional [from, to] inclusive",
+    "header": "module address to send to",
+    "requests": "ordered list of hex requests",
+    "delay_between": "seconds between requests, default 0.2",
+    "confidence": "verified | reported | unverified",
+    "source": "where this came from -- required",
+    "confirmed_on": "list of vehicles somebody actually ran it on",
+    "warning": "what happens when it runs, shown before the button",
+    "preconditions": "list of things that must be true first"
+  },
+
+  "resets": [
+    {
+      "id": "clear-emissions-generic",
+      "name": "Clear emissions codes",
+      "category": "clear",
+      "makes": [],
+      "header": "7DF",
+      "requests": ["04"],
+      "confidence": "verified",
+      "source": "SAE J1979 mode 04 — standardised on every OBD-II vehicle since 1996",
+      "confirmed_on": ["2015 Honda CR-Z"],
+      "warning": "Erases emissions fault codes and freeze-frame data, and resets every readiness monitor to 'not complete'. The car will fail an emissions test until the monitors run again, which usually takes several days of mixed driving. If the fault is still present the code returns immediately.",
+      "preconditions": [
+        "Engine off, ignition on",
+        "Fix the fault first — clearing does not repair anything",
+        "Write down the codes before clearing; the freeze frame goes with them"
+      ]
+    },
+    {
+      "id": "clear-module-uds",
+      "name": "Clear one module's codes",
+      "category": "clear",
+      "makes": [],
+      "header": "",
+      "requests": ["14FFFFFF"],
+      "confidence": "verified",
+      "source": "ISO 14229 service 0x14, ClearDiagnosticInformation, group FFFFFF (all groups)",
+      "confirmed_on": ["2015 Honda CR-Z"],
+      "warning": "Clears the manufacturer-specific codes held by one module — including faults that a generic mode-04 clear never touches. Choose the module before running it.",
+      "preconditions": [
+        "Engine off, ignition on",
+        "A module address must be chosen",
+        "Fix the fault first"
+      ]
+    }
+  ]
+}

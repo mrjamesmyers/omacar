@@ -10,9 +10,14 @@
 
 import { h, clear, store, api, toast, confirmDialog, sevTone, shortDate,
          fullDate, temp, speed, grouped, U } from "../core.js";
+import { explain } from "../learn.js";
 import { lookup, resolveSmart, PID_META } from "../knowledge.js";
 
 export default function codes(root, { arg }) {
+  // Learn mode: renders only when the reader asked for it.
+  const _ex = explain(h, "dtcstatus");
+  if (_ex) root.appendChild(_ex);
+
   const car = store.car;
   if (!car) { root.appendChild(h("div.card", h("div.skel"))); return; }
 
@@ -37,17 +42,37 @@ export default function codes(root, { arg }) {
                   + "codes and their freeze frames — the evidence you would use to "
                   + "diagnose them — and resets every readiness monitor."),
                 h("p.lede", "The car will not pass an emissions test until those monitors "
-                  + "have run again, which takes several complete drive cycles.")),
+                  + "have run again, which takes several complete drive cycles."),
+                h("p.lede", "This writes to the car, so confirming also arms write mode "
+                  + "for fifteen minutes. It will still refuse if the car is moving or "
+                  + "the battery is below 12.2 volts.")),
               confirm: "Clear codes",
             });
             if (!ok) return;
             try {
+              // Confirming IS the arming step. Making someone go to a terminal
+              // between reading the consequences and acting on them adds no
+              // safety -- they have already been told exactly what happens.
+              await api.writeMode(true, 15);
               const r = await api.clear();
-              toast(`Cleared ${r.cleared} code(s). ${r.monitors_reset} readiness monitor(s) reset.`);
+              // Report what the CAR said, not what we did to our own records.
+              // This button used to update the database and announce success
+              // without sending anything over the wire.
+              if (!r.accepted) {
+                toast("The car did not accept the clear. Nothing was changed.", "bad");
+                return;
+              }
+              const n = r.local ? r.local.cleared : 0;
+              const mon = r.local ? r.local.monitors_reset : 0;
+              toast(`Car accepted the clear. ${n} code(s) cleared, `
+                    + `${mon} readiness monitor(s) reset.`);
               await store.refreshCar();
               location.hash = "#codes";
               location.reload();
-            } catch (e) { toast(String(e.message || e), "bad"); }
+            } catch (e) {
+              // 409s carry the actionable reason: not armed, moving, low volts.
+              toast(String(e.message || e), "bad");
+            }
           },
         }, "Clear codes"))),
     h("p.lede",

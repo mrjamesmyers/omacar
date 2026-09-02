@@ -18,6 +18,7 @@ Nothing here is authoritative. A responder is evidence that an address
 exists, not knowledge of what it means — the draft profile says so, and the
 cluster refuses to display an unvalidated candidate.
 """
+import atexit
 import json
 import os
 import sys
@@ -45,7 +46,7 @@ def parse_range(spec, width):
 def moving(el):
     """True if the car reports any road speed. Refuse to sweep if so."""
     el.set_header("07DF")
-    kind, _, data = elmlib.classify(el.request("010D"), 0x01)
+    kind, _, data = elmlib.classify(el.request("010D"), 0x01, "010D")
     if kind != "positive" or len(data) < 6:
         return None                      # cannot tell — caller decides
     try:
@@ -62,7 +63,7 @@ def sweep(el, headers, service, pids, delay, on_progress):
         dead = 0
         for pid in pids:
             req = f"{service:02X}{pid:0{4 if service == 0x22 else 2}X}"
-            kind, detail, data = elmlib.classify(el.request(req), service)
+            kind, detail, data = elmlib.classify(el.request(req), service, req)
             tried += 1
             on_progress(tried, total, header, req, kind)
             if kind == "positive":
@@ -86,7 +87,7 @@ def resample(el, found, rounds, delay, on_progress):
     for r in range(rounds):
         for f in found:
             el.set_header(f["header"])
-            kind, _, data = elmlib.classify(el.request(f["request"]), f["service"])
+            kind, _, data = elmlib.classify(el.request(f["request"]), f["service"], f["request"])
             series[id(f)].append(data if kind == "positive" else "")
             time.sleep(delay)
         on_progress(r + 1, rounds, "", "", "resample")
@@ -128,15 +129,27 @@ def main(argv):
     warn = connect.serial_group_warning(port)
     if warn:
         sys.exit("omacar: " + warn)
-    if os.path.exists(os.path.join(connect.STATE, "daemon.pid")):
-        sys.exit("omacar: the daemon holds the serial port — run: omacar daemon stop")
+    # Take the port lease rather than refusing outright.
+    #
+    # prospect drives elm.py directly instead of going through
+    # connect.connect(), so it did not inherit the handoff that doctor, live
+    # and survey get -- it just told you to stop the daemon. Same lease, same
+    # deadline, released on the way out however this exits: a sweep that dies
+    # halfway must not leave the gauge paused.
+    if not connect.request_port(port):
+        sys.exit("omacar: the daemon is holding " + port + " and did not let go.\n"
+                 "  stop it with: omacar daemon stop")
+    atexit.register(connect.release_port)
 
     headers = [h.strip().upper() for h in args.headers.split(",") if h.strip()]
     width = 2 if service == 0x22 else 1
     pids = parse_range(args.rng, width) if args.rng else parse_range("00-FF", 1) \
         if service != 0x22 else parse_range("0000-00FF", 2)
 
-    el = elmlib.Elm(port)
+    # The OBDLink EX runs at 115200; elm.py defaults to 38400, which is the SX.
+    # Asked at the wrong rate an EX returns line noise rather than silence, so
+    # a sweep would record "no responder" for every PID on the car.
+    el = elmlib.Elm(port, baudrate=(connect.detect_baud(port) or 38400))
     print(f"\n  {BOLD}OmaCar prospector{RESET}  {DIM}{port} ({kind}){RESET}")
     el.init()
 
@@ -157,20 +170,60 @@ def main(argv):
                      "  If it is parked with the engine running, say so:\n"
                      "      omacar prospect --parked\n")
 
+    # The sweep is the long one, so it is the one that can flatten the battery.
+    # See lib/dtc.py for why this exists.
+    import dtc as dtclib
+    v = dtclib.battery_volts(el)
+    if v is not None:
+        print(f"  battery {v:.1f} V")
+        if v < dtclib.LOW_VOLTS:
+            el.close()
+            sys.exit(f"\n  refusing to sweep: {v:.1f} V is too low for a key-on\n"
+                     f"  session. Start the engine, or charge the battery.\n")
+
     print(f"  service 0x{service:02X} · {len(headers)} headers · "
           f"{len(pids)} pids · {len(headers) * len(pids)} requests")
     print(f"  {DIM}read-only services only; writes are refused at the transport{RESET}\n")
 
     last = [0.0]
+    started = [time.time()]
+    hits = [0]
+
+    def _dur(secs):
+        secs = int(max(0, secs))
+        if secs < 60:
+            return f"{secs}s"
+        if secs < 3600:
+            return f"{secs // 60}m{secs % 60:02d}s"
+        return f"{secs // 3600}h{(secs % 3600) // 60:02d}m"
 
     def progress(i, total, header, req, kind_):
         now = time.time()
+        if kind_ == "positive":
+            hits[0] += 1
         if kind_ in ("positive", "skip") or now - last[0] > 0.5:
             last[0] = now
             pct = 100.0 * i / max(1, total)
             mark = {"positive": GREEN + "hit " + RESET, "skip": DIM + "skip" + RESET,
                     "resample": DIM + "diff" + RESET}.get(kind_, "    ")
-            sys.stdout.write(f"\r  {pct:5.1f}%  {header:<5} {req:<6} {mark}\033[K")
+
+            # AN ETA, BECAUSE THESE RUNS ARE LONG.
+            #
+            # A bare percentage is fine for something that takes ten seconds.
+            # A full 16-bit range on one ECU is over two hours, and without a
+            # remaining-time figure there is no way to tell a slow sweep from a
+            # stuck one -- or to decide whether it is worth starting before
+            # you need the car back. Measured from actual elapsed time rather
+            # than a per-request constant, so a bus that slows down is
+            # reflected rather than hidden.
+            elapsed = now - started[0]
+            rate = i / elapsed if elapsed > 0.5 else 0
+            eta = f" · {_dur((total - i) / rate)} left" if rate > 0 else ""
+            found_s = f" · {hits[0]} hit{'' if hits[0] == 1 else 's'}" if hits[0] else ""
+
+            sys.stdout.write(
+                f"\r  {pct:5.1f}%  {header:<9} {req:<7} {mark}"
+                f"{DIM}{_dur(elapsed)} elapsed{eta}{found_s}{RESET}\033[K")
             sys.stdout.flush()
 
     found = sweep(el, headers, service, list(pids), args.delay, progress)

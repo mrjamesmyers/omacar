@@ -12,6 +12,7 @@
 // duplicated and nothing can drift out of step with the record.
 
 import { h, clear, store, api, toast, U, temp, speed, clockOf, shortDate } from "../core.js";
+import { explain } from "../learn.js";
 import { scope, PALETTE } from "../charts.js";
 
 const CHANNELS = [
@@ -37,6 +38,10 @@ const SPANS = [
 const KEY = "omacar.channels";
 
 export default function data(root, { arg } = {}) {
+  // Learn mode: renders only when the reader asked for it.
+  const _ex = explain(h, "pid");
+  if (_ex) root.appendChild(_ex);
+
   let picked = load();
   // Wide by default and narrowing on demand. A parked car has nothing in the
   // last ten minutes, and a lab that opens on an empty grid looks broken when

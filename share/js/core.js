@@ -240,7 +240,10 @@ export const api = {
   records: (q) => req("/api/records?" + new URLSearchParams(q || {})),
   alerts: (n = 40) => req("/api/records?kind=alert&n=" + n),
   scan: () => req("/api/scan", { method: "POST" }),
-  clear: (module) => req("/api/clear", { method: "POST", body: JSON.stringify({ module }) }),
+  clear: (module, headers) => req("/api/clear", { method: "POST", body: JSON.stringify({ module, headers }) }),
+  resets: () => req("/api/resets"),
+  procedures: () => req("/api/procedures"),
+  runReset: (id, header) => req("/api/reset", { method: "POST", body: JSON.stringify({ id, header }) }),
   saveRecording: (label, from, to) =>
     req("/api/record", { method: "POST", body: JSON.stringify({ label, from, to }) }),
   setUnits: (system) => req("/api/units", { method: "POST", body: JSON.stringify({ system }) }),
@@ -251,6 +254,11 @@ export const api = {
   snapshots: (n = 40) => req("/api/snapshots?n=" + n),
   capture: (body) => req("/api/snapshot", { method: "POST", body: JSON.stringify(body || {}) }),
   vehicles: () => req("/api/vehicles"),
+  learned: () => req("/api/learned"),
+  // No timeout wrapper here on purpose: a learning pass probes ten module
+  // addresses and legitimately takes the best part of a minute.
+  learn: (deep) => req("/api/learn", { method: "POST", body: JSON.stringify({ deep: !!deep }) }),
+  writeMode: (arm, minutes) => req("/api/write-mode", { method: "POST", body: JSON.stringify({ arm, minutes }) }),
   vehicle: (body) => req("/api/vehicle", { method: "POST", body: JSON.stringify(body) }),
   theme: () => req("/api/theme"),
   setOdometer: (km) => req("/api/odometer", { method: "POST", body: JSON.stringify({ km }) }),

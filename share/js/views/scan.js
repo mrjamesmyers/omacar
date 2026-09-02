@@ -12,11 +12,28 @@
 // here needs a manufacturer protocol, and the report marks the difference on
 // every line rather than in a footnote.
 
-import { h, clear, store, api, dist, fullDate, toast, sevTone, confirmDialog } from "../core.js";
+import { h, clear, store, api, dist, fullDate, toast, sevTone, confirmDialog, since } from "../core.js";
+import { explain } from "../learn.js";
 
-const STEP_MS = 190;
+// WAS 190ms PER MODULE OF PURE ANIMATION.
+//
+// The old loop fetched the entire report first and then walked the modules
+// saying "reading…", sleeping 190ms at each one. Nothing was being read during
+// that pause -- the data was already in hand. On a car reachable only over
+// generic OBD-II there is exactly one module (the powertrain), so the whole
+// "full system scan" was a fifth of a second of theatre over cached data, and
+// it was correctly read as fake.
+//
+// The scan now asks the daemon to re-read the car and waits for the real
+// thing. What is left here is a short settle so a state change is visible
+// rather than instantaneous -- not a stand-in for work.
+const SETTLE_MS = 60;
 
 export default function scan(root) {
+  // Learn mode: renders only when the reader asked for it.
+  const _ex = explain(h, "gates");
+  if (_ex) root.appendChild(_ex);
+
   let alive = true;
   const state = { report: null, running: false, progress: 0 };
 
@@ -87,7 +104,7 @@ export default function scan(root) {
         ui.status.textContent = "reading…";
         ui.bar.style.width = "100%";
       }
-      await sleep(STEP_MS);
+      await sleep(SETTLE_MS);
       if (!ui) continue;
       ui.bar.style.background = m.active
         ? (m.worst === "critical" ? "var(--bad)" : "var(--warn)") : "var(--ok)";
@@ -104,6 +121,21 @@ export default function scan(root) {
     state.report = report;
     head.querySelector("#print").disabled = false;
     clear(body);
+
+    // SAY WHICH IT IS. A stale report is still useful -- it is what the car
+    // last said -- but the person reading it has to know it is not what the
+    // car says right now, and has to be told without hunting for it.
+    if (!report.fresh) {
+      body.appendChild(h("div.note.warn",
+        h("strong", "Showing the last scan on file. "),
+        report.stale_reason
+          ? report.stale_reason + "."
+          : "The car was not re-read just now.",
+        report.surveyed_at
+          ? " Last read " + since(Date.now() / 1000 - report.surveyed_at) + "."
+          : ""));
+    }
+
     body.appendChild(renderReport(report));
     setRunning(false);
   }

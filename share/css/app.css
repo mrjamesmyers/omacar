@@ -52,6 +52,14 @@
   --on-warn: #1A1305;
   --on-ai:   #0B0718;
 
+  /* The hub is designed for direct sunlight, so it uses a harder foreground
+     than the rest of the app. Going through tokens rather than literals is
+     what lets a look change it in ONE place -- the previous version listed
+     every affected selector per look, and every new hub rule silently
+     reintroduced white into the night palettes. */
+  --bright:   #FFFFFF;
+  --bright-2: #C8D4D2;
+
   --rail: 62px;
   --vbar: 58px;
   --r: 10px;
@@ -90,11 +98,24 @@ button { font: inherit; color: inherit; }
   padding: 10px 0 12px; gap: 4px; position: sticky; top: 0; height: 100vh;
 }
 .rail-mark { color: var(--faint); margin-bottom: 10px; flex: none; }
-.rail-items { display: flex; flex-direction: column; gap: 3px; flex: 1; width: 100%; align-items: center; }
+/* The rail scrolls, and its buttons do not squash.
+   Seventeen views need ~950px of rail. Without these two rules a shorter
+   viewport did both of the wrong things at once: flex-shrink squeezed every
+   button below its 46px hit target, AND the tail of the list -- Garage, Learn,
+   Report, Live, Drive -- was clipped with no scrollbar and no way to reach it.
+   The nav silently lost five destinations. */
+.rail-items {
+  display: flex; flex-direction: column; gap: 3px; flex: 1; width: 100%;
+  align-items: center;
+  overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: none;                 /* Firefox */
+  -ms-overflow-style: none;
+}
+.rail-items::-webkit-scrollbar { width: 0; height: 0; }
 .rail-foot { flex: none; }
 
 .rail-item {
-  width: 46px; height: 46px; border: 0; border-radius: var(--r);
+  width: 46px; height: 46px; flex: none; border: 0; border-radius: var(--r);
   background: transparent; color: var(--faint); cursor: pointer;
   display: grid; place-items: center; position: relative;
   transition: background .14s, color .14s;
@@ -368,15 +389,46 @@ textarea { resize: vertical; min-height: 66px; }
 /* Read at 70 mph in under a second, at arm's length, in daylight, through a
    windscreen's worth of glare. Everything here is bigger than it looks like it
    should be on a desk, which is the point. */
-.drive-stage { padding: 0 !important; overflow: hidden; }
+/* WAS overflow:hidden, WHICH MADE THE CONTROLS UNREACHABLE.
+   .drive below is min-height:100vh and align-content:center. Add enough tiles
+   and the content grows taller than the viewport -- at which point centring
+   pushes the overflow off BOTH ends, and hidden clips it. The Workshop and
+   Customise buttons are the last children, so they were the first to vanish:
+   the reported "won't let me navigate away" and "won't let me customise once
+   the screen is full" were the same bug wearing two hats. */
+.drive-stage { padding: 0 !important; overflow: auto; }
 .app[data-drive="1"] { grid-template-columns: 0 1fr; }
 .app[data-drive="1"] .rail { display: none; }
 .drive {
   min-height: calc(100vh - var(--vbar));
   display: grid; grid-template-rows: 1fr auto auto auto;
   gap: clamp(10px, 2vh, 28px); padding: clamp(14px, 3vh, 40px);
-  align-content: center; position: relative;
+  /* `safe` is the whole fix: centre while the content fits, fall back to
+     start-alignment the moment it does not. Plain `center` has no such
+     fallback and happily centres content it cannot show, putting the first
+     and last rows outside the box where nothing can scroll to them. */
+  align-content: safe center;
+  position: relative;
 }
+/* SUNLIGHT.
+   The workshop views are read at a desk in whatever light you keep indoors.
+   Drive mode is read through a windscreen with the sun on the panel, and the
+   two want different contrast: --faint at #5F726E on --panel sits near 3:1,
+   which is legible at a desk and gone in daylight.
+   Lifted here rather than globally, and derived with color-mix from --ink so
+   it still follows whatever Omarchy theme is active -- theme.py generates
+   these from the desktop palette, so hardcoding hex would break a light
+   theme. */
+.app[data-drive="1"] {
+  --faint: color-mix(in srgb, var(--ink) 64%, var(--ground));
+  --dim:   color-mix(in srgb, var(--ink) 84%, var(--ground));
+  --ghost: color-mix(in srgb, var(--ink) 42%, var(--ground));
+}
+/* Labels carry the meaning of the number above them; at a glance they must not
+   be the weakest thing on the screen. */
+.app[data-drive="1"] .drive-tile-k,
+.app[data-drive="1"] .drive-unit { font-weight: 500; }
+
 .drive-hero { text-align: center; }
 .drive-speed {
   font-size: clamp(5rem, 24vh, 15rem); font-weight: 600; line-height: .86;
@@ -498,3 +550,403 @@ textarea { resize: vertical; min-height: 66px; }
   font-size: .95rem; line-height: 1; padding: 2px 4px; border-radius: 5px;
 }
 .photo figcaption button:hover { background: var(--bad-bg); color: var(--bad); }
+
+/* ============================================================ car hub
+   The in-car layout.
+
+   Every number here is a physical constraint rather than a taste decision.
+   44px is the desk rail; it is fine with a mouse and useless on a touchscreen
+   in a moving car, where the hand is unsteady and the glance is a fraction of
+   a second. 96px minimum on every target, generous gaps so a near-miss is not
+   a wrong tap, and text that stays legible through a windscreen at noon.
+
+   Contrast: pure white on near-black throughout, and nothing on this screen is
+   allowed below var(--bright-2). The workshop palette uses --dim (#93A6A2) and --faint
+   (#5F726E) for hierarchy, which reads beautifully indoors and disappears in
+   direct sun. In here hierarchy comes from SIZE and WEIGHT, not from dimming,
+   because size survives glare and low contrast does not. */
+
+.hub {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 4px 2px 24px;
+  color: var(--bright);
+}
+
+.hub-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.hub-title { font-size: 1.9rem; font-weight: 650; letter-spacing: -.01em; color: var(--bright); }
+.hub-sub { margin-top: 3px; font-size: 1rem; color: var(--bright-2); }
+
+.hub-exit {
+  min-height: 52px; padding: 0 20px;
+  border: 1px solid var(--edge); border-radius: var(--r);
+  background: var(--raise); color: var(--bright);
+  font: inherit; font-size: 1rem; cursor: pointer;
+}
+.hub-exit:hover { border-color: color-mix(in srgb, var(--bright) 26%, var(--edge)); }
+
+/* ---- vitals strip ---- */
+.hub-vitals {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+}
+.hub-vital {
+  background: var(--panel); border: 1px solid var(--edge); border-radius: var(--r);
+  padding: 12px 14px; min-width: 0;
+}
+.hub-vital-v {
+  font-family: var(--mono);
+  font-size: clamp(1.6rem, 4.6vw, 2.5rem);
+  font-weight: 600; line-height: 1.05; color: var(--bright);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hub-vital-u { font-size: .46em; margin-left: .35em; color: var(--bright-2); }
+.hub-vital-k { margin-top: 4px; font-size: .88rem; color: var(--bright-2); }
+
+/* ---- primary tiles ---- */
+.hub-grid {
+  display: grid; gap: 12px;
+  /* auto-fit rather than a fixed column count: this same screen has to work on
+     a 15" laptop lid, a 9" dash tablet in portrait, and a phone. */
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+}
+.hub-tile {
+  position: relative;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  min-height: 128px; padding: 16px 16px 14px;
+  border: 1px solid var(--edge); border-radius: 14px;
+  background: var(--panel); color: var(--bright);
+  font: inherit; text-align: left; cursor: pointer;
+  transition: border-color .12s ease, transform .06s ease, background .12s ease;
+}
+.hub-tile:hover { background: var(--raise); border-color: color-mix(in srgb, var(--bright) 24%, var(--edge)); }
+/* Pressed state matters more here than hover: on a touchscreen there is no
+   hover, and a tap with no feedback gets tapped again. */
+.hub-tile:active { transform: scale(.985); }
+.hub-tile:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+
+.hub-ico { color: var(--bright); opacity: .95; margin-bottom: 6px; }
+.hub-label { font-size: 1.28rem; font-weight: 620; color: var(--bright); }
+.hub-hint { font-size: .92rem; color: var(--bright-2); }
+
+.hub-badge {
+  position: absolute; top: 13px; right: 13px;
+  padding: 4px 10px; border-radius: 999px;
+  font-size: .84rem; font-weight: 600; white-space: nowrap;
+}
+.hub-badge.tone-ok   { background: var(--ok-bg);   color: var(--ok);   border: 1px solid var(--ok); }
+.hub-badge.tone-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn); }
+.hub-badge.tone-bad  { background: var(--bad-bg);  color: var(--bad);  border: 1px solid var(--bad); }
+
+/* ---- secondary row ---- */
+.hub-more { display: flex; flex-wrap: wrap; gap: 10px; }
+.hub-chip {
+  min-height: 52px; padding: 0 20px;
+  border: 1px solid var(--edge); border-radius: 999px;
+  background: var(--panel); color: var(--bright);
+  font: inherit; font-size: 1.02rem; cursor: pointer;
+}
+.hub-chip:hover { background: var(--raise); border-color: color-mix(in srgb, var(--bright) 24%, var(--edge)); }
+.hub-chip:active { transform: scale(.985); }
+
+/* Narrow / portrait dash tablet: two vitals per row rather than four squeezed. */
+@media (max-width: 560px) {
+  .hub-vitals { grid-template-columns: repeat(2, 1fr); }
+  .hub-title { font-size: 1.6rem; }
+}
+
+/* Short and wide -- a laptop lid on a stand. Trim vertical padding so the
+   secondary row stays above the fold instead of needing a scroll at a red
+   light. */
+@media (max-height: 620px) {
+  .hub { gap: 12px; }
+  .hub-tile { min-height: 104px; padding: 12px 14px; }
+  .hub-vital { padding: 9px 12px; }
+}
+
+/* ---- learn mode ----
+   Deliberately quiet. An explanation that shouts is an explanation that annoys
+   the second time you see it, and this text appears on screens people use every
+   day. Left border rather than a filled box: it reads as an aside, not as an
+   alert, and it does not compete with the tinted status cards. */
+.learn {
+  margin: 12px 0 2px;
+  padding: 11px 14px;
+  border-left: 3px solid var(--info);
+  background: var(--info-bg);
+  border-radius: 0 var(--r) var(--r) 0;
+}
+.learn-title { font-weight: 640; font-size: .96rem; color: var(--ink); margin-bottom: 4px; }
+.learn-body { margin: 0; font-size: .93rem; line-height: 1.55; color: var(--dim); }
+.learn-extra { margin-top: 7px; color: var(--faint); }
+.rail-btn.on { background: var(--info-bg); color: var(--info); border-color: rgba(79,168,232,.42); }
+/* In the car the aside has to survive sunlight like everything else. */
+.hub .learn-body, .hub .learn-title { color: var(--bright); }
+
+/* ---- onboarding ---- */
+.ob-scrim {
+  position: fixed; inset: 0; z-index: 60;
+  display: grid; place-items: center;
+  padding: 20px;
+  background: rgba(4, 7, 8, .74);
+  backdrop-filter: blur(3px);
+}
+.ob-card {
+  width: min(560px, 100%);
+  max-height: min(86vh, 700px); overflow: auto;
+  background: var(--panel); border: 1px solid var(--edge);
+  border-radius: 14px; padding: 26px 26px 20px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.5);
+}
+.ob-dots { display: flex; gap: 6px; margin-bottom: 18px; }
+.ob-dot {
+  width: 22px; height: 3px; border-radius: 2px;
+  background: var(--ghost); transition: background .18s ease;
+}
+.ob-dot.on { background: var(--info); }
+.ob-title { margin: 0 0 12px; font-size: 1.35rem; font-weight: 640; color: var(--ink); }
+.ob-body { margin: 0 0 11px; font-size: 1rem; line-height: 1.62; color: var(--dim); }
+.ob-actions { display: flex; align-items: center; gap: 10px; margin-top: 20px; }
+.ob-spacer { flex: 1; }
+@media (max-width: 520px) {
+  .ob-card { padding: 20px 18px 16px; }
+  .ob-title { font-size: 1.18rem; }
+}
+
+/* ---- radio ----
+   Transport button at 64px. The usual 32px media button is a coin-sized target
+   and this gets pressed by someone whose attention belongs on the road. */
+.radio {
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 16px;
+  background: var(--panel); border: 1px solid var(--edge); border-radius: var(--r);
+}
+.radio-play {
+  flex: none; width: 64px; height: 64px; border-radius: 50%;
+  border: 1px solid var(--edge); background: var(--raise); color: var(--bright);
+  font-size: 1.25rem; line-height: 1; cursor: pointer;
+  display: grid; place-items: center;
+}
+.radio-play:hover { border-color: color-mix(in srgb, var(--bright) 26%, var(--edge)); }
+.radio-play:active { transform: scale(.96); }
+.radio-meta { min-width: 0; flex: none; }
+.radio-name { font-size: 1.06rem; font-weight: 620; color: var(--bright); }
+.radio-status { font-size: .9rem; color: var(--bright-2); }
+.radio-status.bad { color: var(--bad); }
+
+/* A 44px-tall hit area around a 6px visual track: thin enough to look right,
+   tall enough to grab without aiming. */
+.radio-vol {
+  flex: 1; min-width: 90px; height: 44px;
+  -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer;
+}
+.radio-vol::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 3px; background: var(--track);
+}
+.radio-vol::-moz-range-track { height: 6px; border-radius: 3px; background: var(--track); }
+.radio-vol::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 26px; height: 26px; margin-top: -10px; border-radius: 50%;
+  background: var(--bright); border: none;
+}
+.radio-vol::-moz-range-thumb {
+  width: 26px; height: 26px; border-radius: 50%; background: var(--bright); border: none;
+}
+@media (max-width: 520px) { .radio-meta { display: none; } }
+
+/* ---- garage ---- */
+.garage-edit { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hair); display: grid; gap: 10px; }
+.garage-field { display: flex; align-items: center; gap: 10px; }
+.garage-label { flex: none; width: 74px; font-size: .92rem; color: var(--dim); }
+.garage-field .input { flex: 1; min-width: 0; }
+@media (max-width: 560px) {
+  .garage-field { flex-wrap: wrap; }
+  .garage-label { width: 100%; }
+}
+
+/* ---- learn view ---- */
+.learnview { display: grid; gap: 14px; }
+.learn-stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px; margin-top: 14px;
+}
+.learn-stat { background: var(--raise); border: 1px solid var(--edge); border-radius: var(--r); padding: 12px 14px; }
+.learn-stat-n { font-family: var(--mono); font-size: 1.7rem; font-weight: 600; color: var(--ink); line-height: 1.1; }
+.learn-stat-k { font-size: .86rem; color: var(--dim); margin-top: 2px; }
+
+.learn-modules { margin-top: 14px; display: grid; gap: 8px; }
+.learn-mod { padding: 10px 12px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--panel); }
+.learn-mod-label { margin-left: 10px; color: var(--dim); font-size: .92rem; }
+.learn-mod-ident { margin-top: 8px; display: grid; gap: 3px; font-size: .88rem; }
+.learn-mod-k { display: inline-block; min-width: 170px; color: var(--faint); }
+
+.glossary { margin-top: 18px; display: grid; gap: 6px; }
+.gloss { border: 1px solid var(--edge); border-radius: var(--r); background: var(--panel); }
+.gloss > summary {
+  cursor: pointer; padding: 11px 14px; font-weight: 600; color: var(--ink);
+  list-style: none;
+}
+.gloss > summary::-webkit-details-marker { display: none; }
+.gloss > summary::before { content: "＋"; margin-right: 9px; color: var(--faint); }
+.gloss[open] > summary::before { content: "－"; }
+.gloss .learn-body { padding: 0 14px 13px; }
+
+/* ---- resets ---- */
+.resets { display: grid; gap: 14px; }
+.resets .sub.warn { color: var(--warn); }
+ul.tight { margin: 6px 0 12px; padding-left: 20px; }
+ul.tight li { margin-bottom: 5px; }
+
+/* ---- owner procedures ---- */
+.procs { display: grid; gap: 8px; margin-top: 14px; }
+.proc { border: 1px solid var(--edge); border-radius: var(--r); background: var(--raise); }
+.proc > summary { cursor: pointer; padding: 12px 14px; list-style: none; display: grid; gap: 2px; }
+.proc > summary::-webkit-details-marker { display: none; }
+.proc-name { font-weight: 620; color: var(--ink); }
+.proc-sym { font-size: .9rem; color: var(--dim); }
+.proc-body { padding: 0 14px 14px; }
+/* The "this is not your problem" callout. Given the warn colour deliberately:
+   it saves more time than any instruction on the screen. */
+.proc-notfor {
+  background: var(--warn-bg); border-left: 3px solid var(--warn);
+  padding: 10px 12px; border-radius: 0 var(--r) var(--r) 0;
+  margin-bottom: 12px; font-size: .93rem; line-height: 1.55; color: var(--ink);
+}
+.proc-steps { margin: 0 0 10px; padding-left: 22px; }
+.proc-steps li { margin-bottom: 7px; line-height: 1.55; }
+.proc-notes { margin-bottom: 8px; }
+.proc-notes .lede { font-size: .9rem; margin-bottom: 6px; }
+
+/* The rail mark is a button now, so it needs to stop looking like a div. */
+.rail-mark {
+  background: none; border: 0; padding: 4px; cursor: pointer;
+  border-radius: var(--r); color: var(--faint);
+  transition: color .12s ease, background .12s ease;
+}
+.rail-mark:hover { color: var(--ink); background: var(--raise); }
+.rail-mark:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+
+/* ---- rail overflow menu ---- */
+.rail-more { color: var(--faint); }
+.rail-menu {
+  position: fixed; z-index: 70;
+  min-width: 250px; max-height: calc(100vh - 24px); overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--edge);
+  border-radius: 12px; padding: 6px;
+  box-shadow: 0 18px 44px rgba(0,0,0,.42);
+  display: grid; gap: 2px;
+}
+.rail-menu-item {
+  position: relative;
+  display: grid; grid-template-columns: 22px 1fr; gap: 10px;
+  align-items: center; text-align: left;
+  padding: 9px 11px; border: 0; border-radius: 8px;
+  background: none; color: var(--ink); font: inherit; cursor: pointer;
+}
+.rail-menu-item:hover { background: var(--raise); }
+.rail-menu-item:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
+/* The title sits under the label on its own line, so the grid gets a second
+   row rather than the description colliding with the icon column. */
+.rail-menu-item > span:nth-of-type(1) { font-weight: 600; }
+.rail-menu-sub {
+  grid-column: 2; font-size: .82rem; color: var(--dim); line-height: 1.35;
+}
+.rail-menu-item svg { grid-row: 1 / span 2; align-self: start; margin-top: 2px; color: var(--dim); }
+.rail-menu-item .pip { top: 10px; right: 10px; }
+.radio-meta { flex: 1 1 auto; min-width: 0; }
+.radio-name, .radio-status {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.radio-count { margin-left: 10px; color: var(--faint); }
+
+/* ---- background effects ----
+   Behind everything, non-interactive, and clipped to the view. The stage is
+   the positioning context, so the canvas cannot spill over the rail or bar. */
+.fx-host {
+  position: absolute; inset: 0; z-index: 0;
+  pointer-events: none; overflow: hidden; border-radius: var(--r);
+}
+.fx-canvas { position: absolute; inset: 0; display: block; }
+/* Content sits above it. Without this the tiles are painted under the canvas
+   and the whole screen becomes decoration. */
+.hub { position: relative; z-index: 1; }
+.stage { position: relative; }
+
+/* ============================================================ looks
+   Palette swaps, applied by data-look on #app.
+
+   Every one of these redefines TOKENS ONLY. Not a single component rule is
+   duplicated here, which is what makes four looks maintainable: a new card
+   style is written once and is correct in all of them.
+
+   NIGHT RED IS NOT A RED TINT, IT IS A RED-ONLY PALETTE.
+   Dark adaptation takes ~20 minutes to build and is destroyed in seconds by
+   short-wavelength light. That is why aircraft cockpits, submarines and
+   observatories use red instrumentation. A "red theme" that leaves a blue
+   focus ring or a green OK pill in place defeats the whole point, so the
+   status colours below are LIGHTNESS variants of red rather than hues --
+   severity is carried by brightness, the one channel still available. */
+
+#app[data-look="green"] {
+  --ground:  #000806;  --panel:  #02120C;  --raise: #051E14;
+  --edge:    #0B3222;  --hair:   #071E14;
+  --ink:     #7CFFB0;  --dim:    #46D189;  --faint: #2A8A58;  --ghost: #1A5237;
+  --ok:      #4AFF9A;  --warn:   #B6FF6A;  --bad:   #FF8A5A;  --info: #5AFFD0;
+  --ok-bg:   rgba(74,255,154,.12);
+  --warn-bg: rgba(182,255,106,.12);
+  --bad-bg:  rgba(255,138,90,.13);
+  --info-bg: rgba(90,255,208,.12);
+  --track:   #0E3A26;
+  --bright:   #9CFFC4;   /* no white anywhere in this look */
+  --bright-2: #46D189;
+}
+
+#app[data-look="dim"] {
+  /* Same hues as the default, pulled well down. For a lit cabin at night where
+     full brightness is a mirror in the windscreen. */
+  --ground:  #040708;  --panel:  #070B0D;  --raise: #0C1417;
+  --edge:    #101A1E;  --hair:   #0A1215;
+  --ink:     #93A6A2;  --dim:    #6A7C78;  --faint: #4A5A57;  --ghost: #2A3639;
+  --ok:      #2F8A5C;  --warn:   #997640;  --bad:   #9A4038;  --info: #35708F;
+  --ok-bg:   rgba(47,138,92,.10);
+  --warn-bg: rgba(153,118,64,.10);
+  --bad-bg:  rgba(154,64,56,.10);
+  --info-bg: rgba(53,112,143,.10);
+  --track:   #162126;
+  --bright:   #A8B8B4;
+  --bright-2: #6A7C78;
+}
+
+#app[data-look="red"] {
+  --ground:  #070101;  --panel:  #130303;  --raise: #200707;
+  --edge:    #3A1210;  --hair:   #1C0605;
+  --ink:     #FF7F68;  --dim:    #C95644;  --faint: #8E3A2E;  --ghost: #5A241C;
+  /* Severity by lightness, not hue -- see the note above. */
+  --ok:      #B85A48;  --warn:   #FF7A4A;  --bad:   #FF3B22;  --info: #D06452;
+  --ok-bg:   rgba(184,90,72,.12);
+  --warn-bg: rgba(255,122,74,.13);
+  --bad-bg:  rgba(255,59,34,.15);
+  --info-bg: rgba(208,100,82,.12);
+  --track:   #34100E;
+  --on-bad:  #1A0402; --on-warn: #1A0703; --on-ai: #16040A;
+  --bright:   #FF9E88;   /* red-only: nothing here may be white */
+  --bright-2: #C95644;
+}
+.radio-meta { flex: 1 1 auto; min-width: 0; }
+.radio-name, .radio-status {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.radio-count { margin-left: 10px; color: var(--faint); }
+
+/* ---- background effects ----
+   Behind everything, non-interactive, and clipped to the view. The stage is
+   the positioning context, so the canvas cannot spill over the rail or bar. */
+.fx-host {
+  position: absolute; inset: 0; z-index: 0;
+  pointer-events: none; overflow: hidden; border-radius: var(--r);
+}
+.fx-canvas { position: absolute; inset: 0; display: block; }
+/* Content sits above it. Without this the tiles are painted under the canvas
+   and the whole screen becomes decoration. */
+.hub { position: relative; z-index: 1; }
+.stage { position: relative; }

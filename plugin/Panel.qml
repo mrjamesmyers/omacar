@@ -50,8 +50,22 @@ Panel {
   readonly property int fStat:    Math.round(Style.font.heading * textScale * 1.15)
   readonly property int fHero:    Math.round(Style.font.displayLarge * textScale)
 
-  readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
+  // White, deliberately, not bar.foreground: see ink() below.
+  readonly property color fg: "#FFFFFF"
   function dim(a) { return Qt.rgba(fg.r, fg.g, fg.b, a) }
+
+  // TEXT IS WHITE, AND BARELY DIMMED. THIS IS READ IN A CAR.
+  //
+  // dim() is the panel's one colour helper and it does two different jobs:
+  // it tints backgrounds and borders, where a low alpha is exactly right, and
+  // it tints TEXT, where a low alpha is why labels vanished in sunlight. They
+  // cannot share a scale, so text gets its own.
+  //
+  // White rather than the theme foreground: this theme's ink is #a9b1d6, a
+  // blue-grey that reads fine on a desk and washes out through a windscreen.
+  // The floor keeps hierarchy -- a caption is still quieter than a heading --
+  // without letting anything fall to where it cannot be read at a glance.
+  function ink(a) { return Qt.rgba(1, 1, 1, Math.max(a, 0.80)) }
 
   readonly property color cGreen:  "#30D158"
   readonly property color cAmber:  "#FF9F0A"
@@ -113,6 +127,59 @@ Panel {
     return "parked"
   }
   readonly property bool engineOn: state_ === "driving" || state_ === "idling"
+
+  // ---- getting started -----------------------------------------------------
+  //
+  // Nothing in this panel could START OmaCar. If the daemon was not running
+  // the panel simply said "offline" and left you to find the CLI -- which is
+  // fine for whoever built it and useless for anyone else. So: a button, in
+  // the one place it is obviously a button, and only while there is nothing
+  // running to make it redundant.
+  property bool daemonStarting: false
+  property string startError: ""
+
+  Process {
+    id: startDaemon
+    command: ["bash", "-lc", "omacar daemon start 2>&1"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.daemonStarting = false
+        // The wrapper prints its failure rather than exiting loudly, so the
+        // text is the only signal worth reading.
+        root.startError = text.indexOf("did not start") >= 0
+          ? "could not start — is the ignition on?" : ""
+      }
+    }
+  }
+
+  function startOmaCar() {
+    if (root.daemonStarting) return
+    root.startError = ""
+    root.daemonStarting = true
+    startDaemon.running = true
+  }
+
+  Process {
+    id: stopDaemon
+    // `omacar daemon stop`, NOT `systemctl --user stop`. The CLI signals the
+    // daemon so its cleanup runs and live.json is marked disconnected; SIGTERM
+    // from systemd skips that and leaves the panel showing the last readings
+    // as though the car were still attached.
+    command: ["bash", "-lc", "omacar daemon stop 2>&1"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: { root.daemonStopping = false }
+    }
+  }
+
+  property bool daemonStopping: false
+
+  function stopOmaCar() {
+    if (root.daemonStopping) return
+    root.daemonStopping = true
+    stopDaemon.running = true
+  }
   readonly property int issues: car.issues || 0
 
   // Worth lighting the bar for: something is past due, or a code has set in
@@ -343,7 +410,7 @@ Panel {
     // an indicator nobody reads.
     active: root.engineOn || root.attention
 
-    iconComponent: SteeringWheel {
+    iconComponent: Car {
       tint: button.active && button.useActiveColor ? button.activeColor : button.foreground
       running: root.engineOn
       // A quarter turn while moving. Not a spin — a wheel that never stops
@@ -409,7 +476,7 @@ Panel {
   // ---- small building blocks ----------------------------------------------
 
   component SectionLabel: Text {
-    color: root.dim(0.42)
+    color: root.ink(0.82)
     font.family: root.bar.fontFamily
     font.pixelSize: root.fMicro
     font.letterSpacing: 1.9
@@ -424,7 +491,7 @@ Panel {
   }
 
   component Muted: Text {
-    color: root.dim(0.52)
+    color: root.ink(0.88)
     font.family: root.bar.fontFamily
     font.pixelSize: root.fCaption
   }
@@ -516,7 +583,7 @@ Panel {
         Text {
           visible: stat.unit !== ""
           text: stat.unit
-          color: root.dim(0.45)
+          color: root.ink(0.88)
           font.family: root.bar.fontFamily
           font.pixelSize: root.fCaption
           anchors.baseline: parent.children[0].baseline
@@ -548,7 +615,7 @@ Panel {
       anchors.left: parent.left
       anchors.verticalCenter: parent.verticalCenter
       text: kv.k
-      color: root.dim(0.55)
+      color: root.ink(0.88)
       font.family: root.bar.fontFamily
       font.pixelSize: root.fCaption
     }
@@ -595,8 +662,86 @@ Panel {
           width: column.width
           height: heroCol.implicitHeight
 
-          SteeringWheel {
+          // The start button lives exactly where the wheel does, because the
+          // wheel is meaningless when nothing is reading the car -- and two
+          // controls fighting for the corner would be worse than one that
+          // changes with the state.
+          Rectangle {
+            id: startBtn
+            visible: !root.connected
+            anchors.right: parent.right
+            anchors.top: parent.top
+            width: Style.space(40)
+            height: width
+            radius: width / 2
+            color: startMouse.containsMouse ? root.dim(0.22) : root.dim(0.13)
+            border.width: 1
+            border.color: root.dim(0.4)
+
+            Text {
+              anchors.centerIn: parent
+              // Play when idle; dots while starting. It was briefly the STOP
+              // glyph for the working state, which is the one thing a start
+              // button must never look like.
+              text: root.daemonStarting ? "\u{F0772}" : "\u{F040A}"
+              color: root.fg
+              font.family: root.bar.fontFamily
+              font.pixelSize: Math.round(Style.space(40) * 0.42)
+              opacity: root.daemonStarting ? 0.5 : 1
+            }
+
+            MouseArea {
+              id: startMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.startOmaCar()
+            }
+          }
+
+          // Stop sits BESIDE the car, not on it. Making the icon itself the
+          // stop control would put "disconnect from the car" one stray tap
+          // away from the thing you look at to check the car -- and on a
+          // touchscreen in a moving vehicle that is a bad trade.
+          Rectangle {
+            id: stopBtn
+            visible: root.connected
+            anchors.right: heroWheel.left
+            anchors.rightMargin: Style.space(8)
+            anchors.verticalCenter: heroWheel.verticalCenter
+            // A word, not a glyph. "Stop" cannot be mistaken for pause,
+            // eject, or record the way a small square can, and this is the
+            // control that severs the link to the car.
+            width: stopLabel.implicitWidth + Style.space(18)
+            height: Style.space(26)
+            radius: height / 2
+            color: stopMouse.containsMouse ? root.dim(0.22) : root.dim(0.10)
+            border.width: 1
+            border.color: root.dim(0.32)
+            opacity: root.daemonStopping ? 0.5 : 1
+
+            Text {
+              id: stopLabel
+              anchors.centerIn: parent
+              text: root.daemonStopping ? "Stopping" : "Stop"
+              color: root.fg
+              font.family: root.bar.fontFamily
+              font.pixelSize: Math.round(Style.font.caption)
+              font.weight: Font.Medium
+            }
+
+            MouseArea {
+              id: stopMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.stopOmaCar()
+            }
+          }
+
+          Car {
             id: heroWheel
+            visible: root.connected
             anchors.right: parent.right
             anchors.top: parent.top
             width: Style.space(40)
@@ -610,7 +755,7 @@ Panel {
           Column {
             id: heroCol
             anchors.left: parent.left
-            anchors.right: heroWheel.left
+            anchors.right: root.connected ? stopBtn.left : startBtn.left
             anchors.rightMargin: Style.space(10)
             spacing: Style.space(3)
 
@@ -624,6 +769,13 @@ Panel {
               font.weight: Font.DemiBold
               elide: Text.ElideRight
               width: heroCol.width
+            }
+
+            Muted {
+              visible: root.startError !== ""
+              text: root.startError
+              width: heroCol.width
+              wrapMode: Text.WordWrap
             }
 
             Row {
@@ -809,7 +961,7 @@ Panel {
                     anchors.bottomMargin: Style.space(4)
                     text: root.state_ === "driving" ? root.units.speed
                         : (root.engineOn ? "rpm" : root.units.dist)
-                    color: root.dim(0.45)
+                    color: root.ink(0.88)
                     font.family: root.bar.fontFamily
                     font.pixelSize: root.fCaption
                   }
@@ -1155,7 +1307,7 @@ Panel {
             text: root.car.have_history
               ? "No trouble codes stored, and nothing in the samples worth flagging."
               : "No diagnostics yet."
-            color: root.dim(0.55)
+            color: root.ink(0.88)
             wrapMode: Text.WordWrap
             font.family: root.bar.fontFamily
             font.pixelSize: root.fCaption

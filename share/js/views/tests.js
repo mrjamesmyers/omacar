@@ -11,6 +11,7 @@
 // nobody implements it.
 
 import { h, clear, store, api, toast, confirmDialog, temp, U } from "../core.js";
+import { explain } from "../learn.js";
 import { scope, PALETTE } from "../charts.js";
 
 const CH = {
@@ -22,6 +23,10 @@ const CH = {
 };
 
 export default function tests(root) {
+  // Learn mode: renders only when the reader asked for it.
+  const _ex = explain(h, "mode06");
+  if (_ex) root.appendChild(_ex);
+
   let cat = null, alive = true, running = null;
   // The trace is sampled from the live store rather than fetched: a test lasts
   // a few seconds and the samples are already arriving five times a second.

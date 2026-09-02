@@ -128,7 +128,8 @@ def describe(key):
     path = path_for(key)
     out = {"key": key, "path": path, "current": key == current(),
            "size": 0, "vin": None, "name": None, "simulated": False,
-           "last_seen": None, "codes": 0}
+           "last_seen": None, "codes": 0,
+           "driver": None, "plate": None, "notes": None}
     try:
         out["size"] = os.path.getsize(path)
     except OSError:
@@ -149,6 +150,8 @@ def describe(key):
         out["simulated"] = bool(v.get("simulated"))
         out["name"] = v.get("name") or " ".join(
             str(x) for x in (v.get("year"), v.get("make"), v.get("model")) if x)
+        for f in ("driver", "plate", "notes"):
+            out[f] = v.get(f)
         out["last_seen"] = v.get("surveyed_at") or v.get("seeded_at")
         out["codes"] = db.execute(
             "SELECT count(*) FROM faults WHERE status IN "
@@ -190,20 +193,53 @@ def switch_to(vin, simulated=False):
     return key, new
 
 
-def name_vehicle(key, name):
-    """Give a car a name, since OBD-II cannot tell us its model."""
+# Fields a person can set on a car. A whitelist rather than free-form keys,
+# because these share the `vehicle` table with values the survey writes -- VIN,
+# odometer, protocol -- and an unrestricted setter would let the UI overwrite
+# measurements with typing.
+META_FIELDS = {
+    "name":   "what to call it, since OBD-II cannot tell us the model",
+    "driver": "who normally drives it",
+    "plate":  "registration, for telling two identical cars apart",
+    "notes":  "anything else worth remembering about this car",
+}
+
+
+def set_meta(key, field, value):
+    """Set one human-supplied field on a car.
+
+    `driver` is why this exists. A household garage is not a list of cars, it
+    is a list of people's cars: the codes that matter are the ones on the car a
+    teenager drives, and "2014 Civic" does not tell you that at a glance while
+    "Emma — 2014 Civic" does.
+    """
+    if field not in META_FIELDS:
+        return False
     path = path_for(key)
     if not os.path.exists(path):
         return False
     db = sqlite3.connect(path, timeout=5.0)
     try:
         db.execute("CREATE TABLE IF NOT EXISTS vehicle (k TEXT PRIMARY KEY, v TEXT)")
-        db.execute("INSERT OR REPLACE INTO vehicle VALUES ('name', ?)",
-                   (json.dumps(name),))
+        text = str(value).strip()
+        if text:
+            db.execute("INSERT OR REPLACE INTO vehicle VALUES (?, ?)",
+                       (field, json.dumps(text)))
+        else:
+            # Clearing a field removes it, so `describe` reports None rather
+            # than an empty string that renders as a blank line in the UI.
+            db.execute("DELETE FROM vehicle WHERE k = ?", (field,))
         db.commit()
     finally:
         db.close()
     return True
+
+
+def name_vehicle(key, name):
+    """Give a car a name. Kept as its own entry point: the CLI and the HTTP API
+    both call it by this name, and renaming a car is common enough to deserve
+    one."""
+    return set_meta(key, "name", name)
 
 
 def forget(key):

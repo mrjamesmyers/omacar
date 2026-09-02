@@ -8,8 +8,13 @@
 // about to stop passing, and that is a thing worth knowing a year early.
 
 import { h, store, pct } from "../core.js";
+import { explain } from "../learn.js";
 
 export default function health(root) {
+  // Learn mode: renders only when the reader asked for it.
+  const _ex = explain(h, "readiness");
+  if (_ex) root.appendChild(_ex);
+
   const car = store.car;
   if (!car) { root.appendChild(h("div.card", h("div.skel"))); return; }
   const r = car.readiness || { monitors: [] };

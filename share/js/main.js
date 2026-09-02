@@ -8,6 +8,14 @@
 
 import { h, clear, icon, store, U, api, toast, dist, grouped, since } from "./core.js";
 
+import { ICONS } from "./icons.js";
+import { learn } from "./learn.js";
+import { savedLook, applyLook } from "./looks.js";
+import { onboard, showOnboarding } from "./onboard.js";
+import hub from "./views/hub.js";
+import resetsView from "./views/resets.js";
+import learnView from "./views/learnview.js";
+import garageView from "./views/garage.js";
 import dash from "./views/dash.js";
 import scan from "./views/scan.js";
 import codes from "./views/codes.js";
@@ -22,39 +30,27 @@ import drive from "./views/drive.js";
 import concernsView from "./views/concerns.js";
 import live from "./views/live.js";
 
-const ICONS = {
-  dash: ["M3 12.5 12 4l9 8.5", "M5.5 10.6V20h13v-9.4"],
-  scan: ["M3 7V4h3", "M21 7V4h-3", "M3 17v3h3", "M21 17v3h-3", "M7 12h10"],
-  codes: ["M12 3.5 21 20H3z", "M12 10v4", "M12 17.2v.1"],
-  data: ["M3 17l4-7 3.5 4L15 6l6 11", "M3 20h18"],
-  health: ["M12 21s-7.5-4.7-7.5-10A4.5 4.5 0 0 1 12 7.6 4.5 4.5 0 0 1 19.5 11c0 5.3-7.5 10-7.5 10z"],
-  concerns: ["M3.5 17.5 9 11l4 3.6 7.5-8.6", "M15.5 6h5v5"],
-  service: ["M14.7 6.3a4 4 0 0 0 5 5L15 16l-3 3-3-3 4.7-4.7a4 4 0 0 0-5-5L12 3l3 3z"],
-  history: ["M3.5 12a8.5 8.5 0 1 0 2.6-6.1", "M3 4v5h5", "M12 8v4.4l3 1.8"],
-  tests: ["M5 12h3.2", "M15.8 12H19", "M12 5.2v13.6", "M8.2 8.6a5.4 5.4 0 0 0 0 6.8",
-          "M15.8 8.6a5.4 5.4 0 0 1 0 6.8"],
-  advisor: ["M12 3.2v3.1", "M12 17.7v3.1", "M4.6 7.6l2.7 1.5", "M16.7 14.9l2.7 1.5",
-            "M4.6 16.4l2.7-1.5", "M16.7 9.1l2.7-1.5", "M12 9.4a2.6 2.6 0 1 0 0 5.2 2.6 2.6 0 0 0 0-5.2z"],
-  report: ["M6.5 3h7.5l4 4v14h-11.5z", "M14 3v4.5h4", "M9 12.5h6", "M9 16h6"],
-  live: ["M12 3a9 9 0 1 0 9 9", "M12 12l5-5"],
-  drive: ["M4.5 13.5 6.2 8.4A2 2 0 0 1 8.1 7h7.8a2 2 0 0 1 1.9 1.4l1.7 5.1",
-          "M4.5 13.5h15v3.8h-3v-1.6h-9v1.6h-3z", "M7.4 15.6h.1", "M16.5 15.6h.1"],
-};
 
 const VIEWS = [
-  { id: "dash", label: "Home", title: "Overview", mount: dash, fast: true },
-  { id: "scan", label: "Scan", title: "Full system scan", mount: scan },
-  { id: "codes", label: "Codes", title: "Trouble codes", mount: codes, fast: true },
-  { id: "advisor", label: "AI", title: "Advisor", mount: advisor, ai: true },
-  { id: "data", label: "Data", title: "Data lab", mount: data, fast: true },
+  // The hub is deliberately first: it is the landing screen in the car, and
+  // route() falls back to VIEWS[0] for an unknown hash.
+  { id: "hub", label: "Car", title: "Car hub", mount: hub, fast: true, car: true },
+  { id: "dash", label: "Home", title: "Overview", mount: dash, primary: true, fast: true },
+  { id: "scan", label: "Scan", title: "Full system scan", mount: scan, primary: true },
+  { id: "codes", label: "Codes", title: "Trouble codes", mount: codes, primary: true, fast: true },
+  { id: "advisor", label: "AI", title: "Advisor", mount: advisor, primary: true, ai: true },
+  { id: "data", label: "Data", title: "Data lab", mount: data, primary: true, fast: true },
   { id: "tests", label: "Tests", title: "Functional tests", mount: tests, fast: true },
   { id: "health", label: "Health", title: "Readiness and on-board tests", mount: health },
   { id: "concerns", label: "Trends", title: "Areas of concern", mount: concernsView },
   { id: "service", label: "Service", title: "Service schedule", mount: service },
+  { id: "resets", label: "Resets", title: "Service resets and functional tests", mount: resetsView },
   { id: "history", label: "Log", title: "Drive history and records", mount: history },
+  { id: "garage", label: "Garage", title: "Every car you own", mount: garageView },
+  { id: "learn", label: "Learn", title: "Learn the car, and the app", mount: learnView },
   { id: "report", label: "Report", title: "Vehicle report", mount: report },
   { id: "live", label: "Live", title: "Cluster", mount: live, fast: true },
-  { id: "drive", label: "Drive", title: "Drive mode", mount: drive, fast: true },
+  { id: "drive", label: "Drive", title: "Drive mode", mount: drive, primary: true, fast: true },
 ];
 
 let current = null;
@@ -63,7 +59,7 @@ let fastTimer = null;
 
 function route() {
   const id = (location.hash || "#dash").slice(1).split("/")[0];
-  return VIEWS.find((v) => v.id === id) || VIEWS[0];
+  return VIEWS.find((v) => v.id === id) || VIEWS.find((v) => v.id === "dash");
 }
 
 function go() {
@@ -97,6 +93,11 @@ function go() {
     fastTimer = setInterval(() => store.refreshLive(), 250);
   }
   document.title = `OmaCar — ${view.title}`;
+  const lb = document.getElementById("btn-learn");
+  if (lb) {
+    lb.setAttribute("aria-pressed", learn.on ? "true" : "false");
+    lb.classList.toggle("on", learn.on);
+  }
 }
 
 function paintRail() {
@@ -106,21 +107,86 @@ function paintRail() {
   const issues = (car.active_faults || []).length;
   const svc = car.service && car.service.due ? car.service.due : 0;
 
-  for (const v of VIEWS) {
-    if (v.ai && !store.aiOn) continue;
-    const btn = h("button.rail-item", {
-      type: "button",
-      title: v.title,
-      "aria-current": current && current.id === v.id ? "page" : null,
-      onclick: () => { location.hash = "#" + v.id; },
-    }, icon(ICONS[v.id] || ICONS.dash, 19), h("span.lbl", v.label));
-
+  // SIX IN THE RAIL, THE REST BEHIND "MORE".
+  //
+  // Seventeen destinations in a vertical strip is not navigation, it is a list
+  // you have to read every time. The six here are the ones reached daily; the
+  // other eleven are reached deliberately, when you already know what you want,
+  // and a menu serves that better than eleven more icons to scan past.
+  //
+  // Nothing is hidden: More holds everything else, with the same badges, and
+  // the current view is promoted into the rail so you can always see where you
+  // are even when you are somewhere secondary.
+  const badge = (v, btn) => {
     if (v.id === "codes" && issues) btn.appendChild(h("span.pip", String(issues)));
     if (v.id === "service" && svc) btn.appendChild(h("span.pip.warn", String(svc)));
     if (v.id === "health" && car.readiness && !car.readiness.ready)
       btn.appendChild(h("span.pip.warn", "!"));
-    rail.appendChild(btn);
-  }
+    return btn;
+  };
+
+  const item = (v) => badge(v, h("button.rail-item", {
+    type: "button",
+    title: v.title,
+    "aria-current": current && current.id === v.id ? "page" : null,
+    onclick: () => { location.hash = "#" + v.id; },
+  }, icon(ICONS[v.id] || ICONS.dash, 19), h("span.lbl", v.label)));
+
+  const shown = VIEWS.filter((v) => v.primary && !(v.ai && !store.aiOn));
+  const rest = VIEWS.filter((v) => !v.primary && !(v.ai && !store.aiOn));
+
+  // Wherever you are should be visible in the rail, even if it lives in More.
+  const here = current && rest.find((v) => v.id === current.id);
+  for (const v of shown) rail.appendChild(item(v));
+  if (here) rail.appendChild(item(here));
+
+  const anyBadge = rest.some((v) =>
+    (v.id === "service" && svc) ||
+    (v.id === "health" && car.readiness && !car.readiness.ready));
+
+  const more = h("button.rail-item.rail-more", {
+    type: "button",
+    title: "Everything else",
+    "aria-haspopup": "menu",
+    onclick: (e) => { e.stopPropagation(); openMore(rest, more, badge); },
+  }, icon(["M6 12h.1", "M12 12h.1", "M18 12h.1"], 19), h("span.lbl", "More"));
+  if (anyBadge) more.appendChild(h("span.pip.warn", "!"));
+  rail.appendChild(more);
+}
+
+function openMore(rest, anchor, badge) {
+  const existing = document.querySelector(".rail-menu");
+  if (existing) { existing.remove(); return; }
+
+  const menu = h("div.rail-menu", { role: "menu" },
+    ...rest.map((v) => badge(v, h("button.rail-menu-item", {
+      type: "button", role: "menuitem",
+      onclick: () => { location.hash = "#" + v.id; menu.remove(); },
+    }, icon(ICONS[v.id] || ICONS.dash, 18),
+       h("span", v.label),
+       h("span.rail-menu-sub", v.title)))));
+
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect();
+  // Anchored to the button, then pulled back on screen if it would run off the
+  // bottom -- More sits low in the rail, so on a short window it always would.
+  menu.style.left = (r.right + 8) + "px";
+  const top = Math.min(r.top, window.innerHeight - menu.offsetHeight - 12);
+  menu.style.top = Math.max(8, top) + "px";
+
+  const close = (e) => {
+    if (menu.contains(e.target)) return;
+    menu.remove();
+    document.removeEventListener("click", close);
+    document.removeEventListener("keydown", esc);
+  };
+  const esc = (e) => { if (e.key === "Escape") close({ target: document.body }); };
+  setTimeout(() => {
+    document.addEventListener("click", close);
+    document.addEventListener("keydown", esc);
+  }, 0);
+  const first = menu.querySelector("button");
+  if (first) first.focus();
 }
 
 function paintBar() {
@@ -174,6 +240,15 @@ function paintBar() {
 // The override lasts until the link cycles, which is the next time the
 // question is genuinely open again.
 
+// "hub" rather than "drive" as the arrival screen.
+//
+// Jumping straight to the gauges answers a question the driver did not ask.
+// The hub is one tap from the gauges and also one tap from codes, scan and
+// live data, and it carries the badges that say which of those is worth
+// opening. Arriving on a screen that can route you beats arriving on a screen
+// you have to leave.
+const ARRIVE = "hub";
+
 let auto = { mode: "connect", back: true };
 let wasConnected = null;
 let wasMoving = false;
@@ -190,9 +265,10 @@ function autoDrive() {
   const want = auto.mode === "connect" ? connected
     : auto.mode === "moving" ? moving : false;
 
-  if (want && view !== "drive" && !overridden) {
-    location.hash = "#drive";
-  } else if (auto.back && !connected && wasConnected === true && view === "drive") {
+  const inCar = view === ARRIVE || view === "drive";
+  if (want && !inCar && !overridden) {
+    location.hash = "#" + ARRIVE;
+  } else if (auto.back && !connected && wasConnected === true && inCar) {
     // Unplugged. Land on the overview rather than on a gauge reading nothing.
     location.hash = "#dash";
   }
@@ -204,8 +280,12 @@ function autoDrive() {
 // Leaving drive mode by hand while the car is still connected is a decision,
 // and it sticks. Arriving there by hand is not an override.
 function noteManualNav(fromId, toId) {
-  if (fromId === "drive" && toId !== "drive" && store.connected) overridden = true;
-  if (toId === "drive") overridden = false;
+  // Leaving car mode by hand is the decision that sticks. Moving BETWEEN the
+  // hub and the gauges is not leaving it -- both are car screens, and treating
+  // a tap on "Drive" as an override would stop the app ever bringing you back.
+  const carScreens = (id) => id === ARRIVE || id === "drive";
+  if (carScreens(fromId) && !carScreens(toId) && store.connected) overridden = true;
+  if (carScreens(toId)) overridden = false;
 }
 
 // Arriving with a view already named in the URL is somebody asking for that
@@ -252,6 +332,26 @@ async function applyTheme() {
 }
 
 async function boot() {
+  // Learn mode is a local preference, not a server one: it changes nothing
+  // about the car or the data, only how much of the app explains itself. No
+  // round trip, so it toggles instantly.
+  // The mark at the top of the rail goes to the car dashboard.
+  //
+  // Seventeen rail items is too many to scan, and "Car" reads as just another
+  // section rather than as the screen everything else hangs off. A logo that
+  // goes home is the one navigation convention every user already has.
+  const hubBtn = document.getElementById("btn-hub");
+  if (hubBtn) hubBtn.addEventListener("click", () => { location.hash = "#hub"; });
+
+  const learnBtn = document.getElementById("btn-learn");
+  const paintLearn = () => {
+    learnBtn.setAttribute("aria-pressed", learn.on ? "true" : "false");
+    learnBtn.classList.toggle("on", learn.on);
+  };
+  learnBtn.title = "Learn — what this car is, and what everything here means";
+  learnBtn.addEventListener("click", () => { location.hash = "#learn"; });
+  paintLearn();
+
   document.getElementById("btn-units").addEventListener("click", async () => {
     // The server owns the unit choice, because the CLI, the dock card and this
     // app all read the same file. Flipping it here writes that file, so the
@@ -277,11 +377,22 @@ async function boot() {
   store.on("car", autoDrive);
 
   honourInitialView();
+  // Before the first paint. A night-red look that arrives a beat late is a
+  // flash of full-brightness white at the exact moment it matters most.
+  applyLook(savedLook());
+
   await Promise.all([store.boot(), applyTheme(), loadAuto()]);
   document.getElementById("btn-units").textContent = U.units.dist;
   document.getElementById("app").dataset.booting = "0";
   paintBar();
   go();
+
+  // First run. After the app has drawn, not before: opening on a blank page
+  // makes it look like the tour IS the application, and the point of the tour
+  // is to describe the thing behind it.
+  if (!onboard.done) {
+    showOnboarding(document.getElementById("modal-host"), { onClose: go });
+  }
 
   setInterval(() => store.refreshCar(), 20000);
   // Cheap: one stat on the server and a no-op unless the theme actually moved.

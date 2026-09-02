@@ -116,7 +116,65 @@ def job_state(jid):
 
 # ---- the scan ---------------------------------------------------------------
 
-def scan():
+def surveyed_at():
+    """Unix seconds of the last completed survey, or 0.
+
+    Read straight from the vehicle table rather than from snapshot(), which
+    does not carry it -- and the scan report needs it to say how old a stale
+    result is.
+    """
+    try:
+        db = records.connect()
+        row = db.execute(
+            "SELECT v FROM vehicle WHERE k='surveyed_at'").fetchone()
+        return json.loads(row[0]) if row else 0
+    except Exception:                                         # noqa: BLE001
+        return 0
+
+
+def request_survey(timeout=12.0):
+    """Ask the running daemon to read the car NOW, and wait for it.
+
+    Returns (fresh, why): fresh is True only if the car was actually re-read.
+
+    The daemon holds the serial port, so this is a handoff rather than a read:
+    drop the request file, wait for the daemon to claim it, then wait for the
+    surveyed_at stamp to move. Both waits are bounded -- a scan button that
+    hangs is no better than one that lies.
+    """
+    import connect as _connect
+    req = os.path.join(_connect.STATE, "survey-now")
+    pid = os.path.join(_connect.STATE, "daemon.pid")
+
+    if not os.path.exists(pid):
+        return False, "the daemon is not running, so nothing is reading the car"
+
+    before = surveyed_at()
+    try:
+        with open(req, "w", encoding="utf-8") as f:
+            f.write(str(time.time()))
+    except OSError as e:
+        return False, f"could not ask the daemon: {e}"
+
+    deadline = time.time() + timeout
+    claimed = False
+    while time.time() < deadline:
+        time.sleep(0.25)
+        if not claimed and not os.path.exists(req):
+            claimed = True          # daemon took the request; now it is working
+        if claimed and surveyed_at() > before:
+            return True, ""
+    # Clean up an unclaimed request so it cannot fire later out of nowhere.
+    if not claimed:
+        try:
+            os.remove(req)
+        except OSError:
+            pass
+        return False, "the daemon did not pick up the request"
+    return False, "the car did not answer in time"
+
+
+def scan(live=True):
     """A full-system code scan, filed in the record book.
 
     On a real car this walks every module the adapter can address. Here it
@@ -124,7 +182,13 @@ def scan():
     plain OBD-II adapter could genuinely have reached, because a scan report
     that quietly implies it read the airbag module over a generic protocol is
     the sort of thing that gets people hurt.
+
+    `live` asks the daemon for a fresh read first. The report carries `fresh`
+    and `stale_reason` so the app can say which it is showing: a scan tool that
+    hands back yesterday's answer without saying so is the same failure as one
+    that invents an answer.
     """
+    fresh, why = (request_survey() if live else (False, "not requested"))
     s = records.snapshot()
     by_module = {}
     for f in s["faults"]:
@@ -165,6 +229,13 @@ def scan():
         "mode06_failed": [m["mid"] for m in s["mode06"] if m["pass"] is False],
         "service_due": (s["service"] or {}).get("due", 0),
         "service_next": (s["service"] or {}).get("next"),
+        # Whether this report is a fresh read of the car or the last one on
+        # file. The app shows the difference; a scan tool that hands back an
+        # old answer without saying so is the same failure as one that invents
+        # an answer.
+        "fresh": fresh,
+        "stale_reason": ("" if fresh else why),
+        "surveyed_at": surveyed_at() or None,
     }
     rid = records.write_record(
         "scan",
@@ -179,12 +250,26 @@ def scan():
     return report
 
 
-def clear_codes(module=None):
-    """Mode 04. Clears codes, and is honest about what that costs.
+def record_clear_locally(module=None):
+    """Bring our records into line AFTER the car has actually been cleared.
 
-    Clearing does not fix anything and it resets every readiness monitor, so
-    the returned payload says exactly what was lost — the app puts that in
-    front of the user before the button does anything.
+    THIS DOES NOT TALK TO THE CAR, AND ONCE PRETENDED IT DID.
+
+    It was called `clear_codes`, its docstring said "Mode 04", and it was wired
+    straight to the app's Clear button -- but every line of it writes to our own
+    SQLite and nothing was ever sent over the wire. Pressing Clear made the
+    codes disappear from the screen, returned a success payload, and left the
+    fault set in the car with the lamp still lit. The codes then "came back" on
+    the next survey, which reads as an intermittent fault rather than as a
+    button that did nothing.
+
+    That is the same failure as a progress bar over cached results, and it is
+    worse, because a person can conclude their car is fixed.
+
+    It is now only reachable from the /api/clear handler, and only after the
+    module has confirmed the real clear. Clearing does not fix anything and it
+    resets every readiness monitor, so the returned payload still says exactly
+    what was lost.
     """
     db = sqlite3.connect(records.DB, timeout=5.0)
     try:
@@ -448,6 +533,31 @@ def handle_get(path, query):
             subject=qstr(query, "subject"), subject_id=qstr(query, "id"))}
     if path == "/api/vehicles":
         return 200, {"vehicles": garage.vehicles(), "current": garage.current()}
+    if path == "/api/procedures":
+        # Owner procedures need no adapter, no arming and no car present --
+        # they are instructions, not requests. So this endpoint deliberately
+        # has none of the guards the write endpoints carry.
+        import ops
+        car = records.snapshot() or {}
+        make = car.get("make") or (car.get("vehicle") or {}).get("make")
+        return 200, {"procedures": ops.load_procedures(make=make), "make": make}
+    if path == "/api/resets":
+        import ops
+        import write as writelib
+        # The make comes from the VIN decode the survey already did. Filtering
+        # matters: offering a Honda-specific routine on a BMW would send that
+        # routine id to a module that does something else entirely with it.
+        car = records.snapshot() or {}
+        make = car.get("make") or (car.get("vehicle") or {}).get("make")
+        defs = ops.load_resets()
+        return 200, {"resets": ops.applicable(defs, make=make),
+                     "write_armed": writelib.is_armed()}
+    if path == "/api/learned":
+        import discover
+        import write as writelib
+        return 200, {"car": discover.summary(),
+                     "write_armed": writelib.is_armed(),
+                     "write_until": writelib.armed_until()}
     if path == "/api/theme":
         # The mtime rides along so the app can re-apply on a theme change
         # without re-parsing anything it already has.
@@ -466,8 +576,6 @@ def handle_post(path, body):
         data = {}
     if path == "/api/scan":
         return 200, scan()
-    if path == "/api/clear":
-        return 200, clear_codes(module=data.get("module"))
     if path == "/api/record":
         try:
             return 200, save_recording(data.get("label"),
@@ -496,10 +604,117 @@ def handle_post(path, body):
                 note=data.get("note") or "", tags=data.get("tags"))
         except ValueError as e:
             return 400, {"error": str(e)}
+    if path == "/api/learn":
+        # A learning pass takes tens of seconds and holds the port. Run it
+        # inline rather than in a thread: two concurrent passes would fight
+        # over the same adapter, and the lease would make the loser look like
+        # a hardware fault.
+        import discover
+        try:
+            discover.learn(deep=bool(data.get("deep")))
+        except RuntimeError as e:
+            return 409, {"error": str(e)}
+        except Exception as e:                                    # noqa: BLE001
+            return 500, {"error": f"{type(e).__name__}: {e}"}
+        return 200, {"car": discover.summary()}
+    if path == "/api/clear":
+        # Clearing needs the adapter to itself, so it takes the same lease
+        # every other one-off command takes. The gauge pauses for a second or
+        # two and resumes; it does not look like a disconnection.
+        import connect
+        import ops
+        import elm as elmlib
+        import write as writelib
+        # Arming is checked before the port is touched. It is the cheapest
+        # check and the most actionable message, and there is no reason to take
+        # the lease off the gauge daemon for a request that cannot proceed.
+        if not writelib.is_armed():
+            return 409, {"error": "write mode is not armed — run: omacar write arm"}
+        port, _kind = connect.resolve()
+        if not port:
+            return 409, {"error": "no adapter"}
+        if not connect.request_port(port):
+            return 409, {"error": "the daemon is holding the port"}
+        try:
+            el = elmlib.Elm(port, baudrate=(connect.detect_baud(port) or 38400))
+            el.init()
+            try:
+                ops.preflight(el)
+                headers = data.get("headers") or []
+                result = ops.clear_codes(el, headers)
+            finally:
+                el.close()
+        except ops.Refused as e:
+            return 409, {"error": str(e)}
+        except Exception as e:                                    # noqa: BLE001
+            return 500, {"error": f"{type(e).__name__}: {e}"}
+        finally:
+            connect.release_port()
+
+        # Only now touch our own records, and only if the car agreed. A refusal
+        # from the module must leave our view of the faults exactly as it was,
+        # or the app goes back to claiming a clear that did not happen.
+        gen = (result.get("generic") or {}).get("kind")
+        mods = [m.get("kind") for m in (result.get("modules") or {}).values()]
+        accepted = gen == "positive" or any(k == "positive" for k in mods)
+        local = record_clear_locally(module=data.get("module")) if accepted else None
+
+        try:
+            request_survey()
+        except Exception:                                         # noqa: BLE001
+            pass
+        return 200, {"sent": result, "accepted": accepted, "local": local}
+    if path == "/api/reset":
+        import connect
+        import ops
+        import elm as elmlib
+        import write as writelib
+        if not writelib.is_armed():
+            return 409, {"error": "write mode is not armed — run: omacar write arm"}
+        defs = ops.load_resets()
+        spec = defs.get(data.get("id") or "")
+        if not spec:
+            return 404, {"error": "no such reset definition"}
+        if data.get("header"):
+            spec = dict(spec, header=data["header"])
+        port, _kind = connect.resolve()
+        if not port:
+            return 409, {"error": "no adapter"}
+        if not connect.request_port(port):
+            return 409, {"error": "the daemon is holding the port"}
+        try:
+            el = elmlib.Elm(port, baudrate=(connect.detect_baud(port) or 38400))
+            el.init()
+            try:
+                ops.preflight(el)
+                steps = ops.run_reset(el, spec)
+            finally:
+                el.close()
+        except ops.Refused as e:
+            return 409, {"error": str(e)}
+        except Exception as e:                                    # noqa: BLE001
+            return 500, {"error": f"{type(e).__name__}: {e}"}
+        finally:
+            connect.release_port()
+        return 200, {"steps": steps, "reset": spec.get("name")}
+    if path == "/api/write-mode":
+        import write as writelib
+        if data.get("arm"):
+            writelib.arm(float(data.get("minutes") or 15) * 60.0)
+        else:
+            writelib.disarm()
+        return 200, {"write_armed": writelib.is_armed(),
+                     "write_until": writelib.armed_until()}
     if path == "/api/vehicle":
         key = data.get("key")
-        if data.get("name") and key:
-            garage.name_vehicle(key, data["name"])
+        # Editing fields and switching cars are different intents and must not
+        # be confused. An edit names a field; only a bare {key} switches. The
+        # earlier version treated "no name given" as "switch to this car",
+        # so clearing a car's name silently made it the active vehicle.
+        edits = {f: data[f] for f in garage.META_FIELDS if f in data}
+        if key and edits:
+            for field, value in edits.items():
+                garage.set_meta(key, field, value)
         elif key:
             garage.set_current(key)
             records.refresh_db()

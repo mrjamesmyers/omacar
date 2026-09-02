@@ -145,6 +145,50 @@ def palette(path=THEME):
     dim = src.get("dark_foreground") or mix(fg, ground, 0.35)
     faint = src.get("muted") or mix(fg, ground, 0.58)
     ghost = mix(fg, ground, 0.74)
+
+    # THE INK WEIGHTS GET THE SAME CONTRAST FLOOR THE SEMANTIC COLOURS GET.
+    #
+    # Below this, `dim` and `faint` were whatever the bleed happened to
+    # produce, and nobody measured the result. On the stock dark palette faint
+    # landed near 3:1 on --panel: fine at a desk, and gone in a car with the
+    # sun on the screen. Every tile label, every unit, every caption in this
+    # app is --faint, so "hard to read in sunlight" was not a drive-mode
+    # problem -- it was the whole app.
+    #
+    # Measured against --panel because that is the surface these actually sit
+    # on (cards, tiles, rows), not against --ground.
+    #
+    # The floors are deliberately above WCAG's 4.5:1 for body text: this is a
+    # tool used outdoors, in a moving vehicle, at a glance. ghost is decorative
+    # (rules, disabled chrome) so it keeps a lower floor -- lifting it to match
+    # would flatten the hierarchy that makes the other two readable.
+    # WHITE INK ON DARK, NOT A TINTED GREY.
+    #
+    # The contrast floors above were the first attempt and they were not
+    # enough: on the Tokyo Night palette they lifted faint from 1.91:1 to
+    # 5.15:1, which passes WCAG and is still washed out through a windscreen
+    # with the sun on the panel. Contrast ratio is not the whole story
+    # outdoors -- a blue-grey at 5:1 reads worse in glare than white at the
+    # same ratio, because the eye is fighting the ambient colour temperature
+    # as well as the luminance.
+    #
+    # So on a dark theme the ink weights are pulled toward white rather than
+    # merely away from the ground, and the separation between them is kept
+    # small: hierarchy still reads, but nothing falls into the range where it
+    # cannot be read at a glance in a moving car.
+    #
+    # Light themes are left alone -- they have the opposite problem and none
+    # of this applies.
+    if not light:
+        WHITE = "#FFFFFF"
+        ink = mix(ink, WHITE, 0.72)
+        dim = mix(dim, WHITE, 0.82)
+        faint = mix(faint, WHITE, 0.68)
+        ghost = mix(ghost, WHITE, 0.42)
+
+    dim = readable(dim, panel, floor=7.0)
+    faint = readable(faint, panel, floor=5.0)
+    ghost = readable(ghost, panel, floor=2.6)
     edge = mix(ground, fg, 0.10 if light else 0.09)
     edge2 = mix(ground, fg, 0.20 if light else 0.17)
 
