@@ -128,8 +128,18 @@ def add(path_or_bytes, kind="other", title="", vendor="", doc_date="",
         blob = bytes(path_or_bytes)
         src_name = filename or "document"
     else:
+        # Size FIRST. Reading a five-gigabyte file into memory and then
+        # rejecting it for being too large is a peculiar way to enforce a
+        # limit, and the machine this runs on has two cores and no headroom.
+        try:
+            size = os.path.getsize(path_or_bytes)
+        except OSError as e:
+            raise ValueError(str(e)) from e
+        if size > MAX_BYTES:
+            raise ValueError(f"{size // (1024*1024)} MB is larger than the "
+                             f"{MAX_BYTES // (1024*1024)} MB limit")
         with open(path_or_bytes, "rb") as f:
-            blob = f.read()
+            blob = f.read(MAX_BYTES + 1)
         src_name = filename or os.path.basename(path_or_bytes)
 
     if not blob:
@@ -202,10 +212,30 @@ def listing(kind=None, n=500):
 
 
 def get(doc_id):
-    for d in listing(n=10000):
-        if d["id"] == int(doc_id):
-            return d
-    return None
+    """One document, by id.
+
+    Was a linear scan over `listing(n=10000)`: O(n) on every lookup, and worse,
+    a library with more than ten thousand documents made older ones simply
+    invisible to get() -- remove() and parse() would report "no such document"
+    for a document plainly on screen.
+    """
+    db = open_db()
+    try:
+        r = db.execute("SELECT * FROM documents WHERE id=?",
+                       (int(doc_id),)).fetchone()
+        if not r:
+            return None
+        d = dict(r)
+        for field, default in (("tags", []), ("extracted", None)):
+            try:
+                d[field] = json.loads(d.get(field) or ("[]" if default == [] else "null"))
+            except ValueError:
+                d[field] = default
+        return d
+    except (ValueError, TypeError):
+        return None
+    finally:
+        db.close()
 
 
 def path_of(name):

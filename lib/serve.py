@@ -57,15 +57,59 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def end_headers(self):
+        """Security headers on EVERYTHING, including static files.
+
+        The API set these; the static handler inherited from
+        SimpleHTTPRequestHandler set none, so app.html itself could be framed
+        by any page. The Host check does not help there -- a remote page
+        framing http://127.0.0.1:<port>/app.html makes the browser send
+        Host: 127.0.0.1, which passes. That is clickjacking on an application
+        that can clear fault codes and command actuators.
+        """
+        if not self.headers_already_secured:
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.headers_already_secured = True
+        super().end_headers()
+
+    headers_already_secured = False
+
+    def send_response(self, *a, **kw):
+        # Reset per response, since the handler instance is reused on a
+        # keep-alive connection.
+        self.headers_already_secured = False
+        super().send_response(*a, **kw)
+
+    def do_HEAD(self):
+        """HEAD on an API path returned a 404 from the static handler.
+
+        Harmless in itself, and actively misleading: a header check against
+        /api/... read the 404's headers rather than the API's, which is exactly
+        how a security audit of this file briefly reached the wrong conclusion.
+        """
+        path = self.path.partition("?")[0]
+        if path.startswith("/api/"):
+            if not self._local():
+                return self._json({"error": "loopback only"}, 403)
+            if not self._authorised():
+                return self._json({"error": "a token is required"}, 401)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return
+        return super().do_HEAD()
+
     def _send(self, body, ctype="application/json", status=200):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
-        # The app is one origin talking to itself. Nothing else may read it,
-        # and nothing else may frame it.
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("X-Frame-Options", "DENY")
+        # X-Frame-Options and nosniff are set for EVERY response in
+        # end_headers() now, including static files, so setting them here as
+        # well only produced duplicates.
         self.end_headers()
         self.wfile.write(body)
 

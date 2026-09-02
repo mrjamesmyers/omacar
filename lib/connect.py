@@ -87,18 +87,84 @@ def daemon_yielded(since_ts=0.0):
         return True
 
 
+PORT_LOCK = os.path.join(STATE, "port.lock")
+_lock_fh = None
+
+
+def take_port_lock(timeout=15.0):
+    """Exclusive claim on the adapter, across processes AND threads.
+
+    request_port() below coordinates with the DAEMON and nothing else, which
+    was enough when the only other participant was one CLI command at a time.
+    It is not enough now: the HTTP server is threaded, so two requests --
+    /api/learn and /api/clear, say -- could both be told the port was theirs,
+    open it, and interleave AT commands on one ELM327. The adapter answers the
+    wrong question or stops answering, and on a tool that can now WRITE to a
+    car, a clear interleaving with a sweep is not a cosmetic problem.
+
+    An advisory file lock rather than a threading.Lock, because the
+    participants are separate processes: the server, the CLI, dtclog, candlog
+    and the discovery service.
+    """
+    import fcntl
+    global _lock_fh
+    if _lock_fh is not None:
+        return True                     # already ours in this process
+    os.makedirs(STATE, exist_ok=True)
+    fh = open(PORT_LOCK, "w", encoding="utf-8")
+    deadline = time.time() + timeout
+    while True:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fh.write(f"{os.getpid()} {time.time()}\n")
+            fh.flush()
+            _lock_fh = fh
+            return True
+        except OSError:
+            if time.time() >= deadline:
+                fh.close()
+                return False
+            time.sleep(0.25)
+
+
+def release_port_lock():
+    import fcntl
+    global _lock_fh
+    if _lock_fh is None:
+        return
+    try:
+        fcntl.flock(_lock_fh.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+    try:
+        _lock_fh.close()
+    except OSError:
+        pass
+    _lock_fh = None
+
+
 def request_port(port, timeout=12.0):
     """Ask a running daemon to let go, and wait until it has.
 
     Returns True when the port is ours to open. Safe to call when no daemon is
     running: it notices, writes nothing, and returns immediately.
     """
+    # Exclusive first: if somebody else already has the adapter, asking the
+    # daemon to step aside would only hand it to a second claimant.
+    if not take_port_lock(timeout):
+        return False
     if not daemon_running():
         return True
     try:
         with open(PORT_YIELD, "w", encoding="utf-8") as f:
             f.write(str(time.time() + YIELD_GRACE))
     except OSError:
+        # Drop the exclusive claim we just took. A CLI command that fails here
+        # exits and the kernel releases it; the HTTP server does not exit, so
+        # without this one failed hand-over would hold the adapter for the life
+        # of the process and every later car operation would wait on a
+        # claimant that had already given up.
+        release_port_lock()
         return False
     asked_at = time.time()
     deadline = asked_at + timeout
@@ -158,6 +224,10 @@ def release_port():
         os.remove(PORT_YIELD)
     except OSError:
         pass
+    # Always last, and always: every caller already releases in a finally, so
+    # the exclusive claim rides on the same guarantee rather than needing a
+    # second one nobody would remember.
+    release_port_lock()
 
 
 def bench_port():
