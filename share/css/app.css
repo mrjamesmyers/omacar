@@ -879,6 +879,14 @@ ul.tight li { margin-bottom: 5px; }
    duplicated here, which is what makes four looks maintainable: a new card
    style is written once and is correct in all of them.
 
+   SCOPED TO :root, NOT TO #app.
+   They were on #app first, and the result looked half-finished: `html` and
+   `body` take --ground from :root, so the page behind the app stayed the
+   default dark while the app itself went red. The rail's overflow menu is
+   appended to document.body and missed the palette entirely for the same
+   reason. On :root everything inherits, including anything portalled to the
+   body later.
+
    NIGHT RED IS NOT A RED TINT, IT IS A RED-ONLY PALETTE.
    Dark adaptation takes ~20 minutes to build and is destroyed in seconds by
    short-wavelength light. That is why aircraft cockpits, submarines and
@@ -887,7 +895,7 @@ ul.tight li { margin-bottom: 5px; }
    status colours below are LIGHTNESS variants of red rather than hues --
    severity is carried by brightness, the one channel still available. */
 
-#app[data-look="green"] {
+:root[data-look="green"] {
   --ground:  #000806;  --panel:  #02120C;  --raise: #051E14;
   --edge:    #0B3222;  --hair:   #071E14;
   --ink:     #7CFFB0;  --dim:    #46D189;  --faint: #2A8A58;  --ghost: #1A5237;
@@ -901,7 +909,7 @@ ul.tight li { margin-bottom: 5px; }
   --bright-2: #46D189;
 }
 
-#app[data-look="dim"] {
+:root[data-look="dim"] {
   /* Same hues as the default, pulled well down. For a lit cabin at night where
      full brightness is a mirror in the windscreen. */
   --ground:  #040708;  --panel:  #070B0D;  --raise: #0C1417;
@@ -917,7 +925,7 @@ ul.tight li { margin-bottom: 5px; }
   --bright-2: #6A7C78;
 }
 
-#app[data-look="red"] {
+:root[data-look="red"] {
   --ground:  #070101;  --panel:  #130303;  --raise: #200707;
   --edge:    #3A1210;  --hair:   #1C0605;
   --ink:     #FF7F68;  --dim:    #C95644;  --faint: #8E3A2E;  --ghost: #5A241C;

@@ -63,7 +63,7 @@ export function mountEffect(host, mode) {
   // the whole point is that nothing is white. Taking the colours from the
   // tokens means the effect follows whatever look is active, including any
   // added later, with no further edits here.
-  const cs = getComputedStyle(document.getElementById("app") || document.body);
+  const cs = getComputedStyle(document.documentElement);
   const tok = (n, fb) => (cs.getPropertyValue(n) || "").trim() || fb;
   const HEAD = tok("--bright", "#BEFFDC");
   const TAIL = tok("--ok", "#4ACE8A");

@@ -40,18 +40,20 @@ export function lookById(id) {
   return LOOKS.find((l) => l.id === id) || LOOKS[0];
 }
 
-// The palette is applied to #app, NOT to the view.
+// The palette is applied to the document root, NOT to a view.
 //
 // A look has to survive navigation -- the whole point of night red is that it
-// stays red while you move between screens -- so it is set once on the app
-// root and never touched by a view mount. Only the background canvas, which is
+// stays red while you move between screens -- so it is set once, at the top,
+// and never touched by a view mount. Only the background canvas, which is
 // genuinely per-view, is mounted and torn down with the hub.
 export function applyLook(id) {
-  const app = document.getElementById("app");
-  if (!app) return;
+  // documentElement, not #app. html and body read --ground from :root, so a
+  // look set on #app left the page behind the app unthemed, and anything
+  // appended to document.body (the rail's overflow menu) missed it entirely.
+  const root = document.documentElement;
   const look = lookById(id);
-  if (look.id === "normal") app.removeAttribute("data-look");
-  else app.setAttribute("data-look", look.id);
+  if (look.id === "normal") root.removeAttribute("data-look");
+  else root.setAttribute("data-look", look.id);
 }
 
 export function nextLook(id) {
