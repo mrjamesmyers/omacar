@@ -17,6 +17,7 @@
 // nowhere else.
 
 import QtQuick
+import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -651,1035 +652,1034 @@ Panel {
       anchors.fill: parent
       onCloseRequested: root.close()
 
-      Column {
-        id: column
-        anchors.left: parent.left
-        anchors.right: parent.right
-        spacing: Style.space(12)
-
-        // ---- who, and what it is doing ----
-        Item {
-          width: column.width
-          height: heroCol.implicitHeight
-
-          // The start button lives exactly where the wheel does, because the
-          // wheel is meaningless when nothing is reading the car -- and two
-          // controls fighting for the corner would be worse than one that
-          // changes with the state.
-          Rectangle {
-            id: startBtn
-            visible: !root.connected
-            anchors.right: parent.right
-            anchors.top: parent.top
-            width: Style.space(40)
-            height: width
-            radius: width / 2
-            color: startMouse.containsMouse ? root.dim(0.22) : root.dim(0.13)
-            border.width: 1
-            border.color: root.dim(0.4)
-
-            Text {
-              anchors.centerIn: parent
-              // Play when idle; dots while starting. It was briefly the STOP
-              // glyph for the working state, which is the one thing a start
-              // button must never look like.
-              text: root.daemonStarting ? "\u{F0772}" : "\u{F040A}"
-              color: root.fg
-              font.family: root.bar.fontFamily
-              font.pixelSize: Math.round(Style.space(40) * 0.42)
-              opacity: root.daemonStarting ? 0.5 : 1
-            }
-
-            MouseArea {
-              id: startMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: root.startOmaCar()
-            }
-          }
-
-          // Stop sits BESIDE the car, not on it. Making the icon itself the
-          // stop control would put "disconnect from the car" one stray tap
-          // away from the thing you look at to check the car -- and on a
-          // touchscreen in a moving vehicle that is a bad trade.
-          Rectangle {
-            id: stopBtn
-            visible: root.connected
-            anchors.right: heroWheel.left
-            anchors.rightMargin: Style.space(8)
-            anchors.verticalCenter: heroWheel.verticalCenter
-            // A word, not a glyph. "Stop" cannot be mistaken for pause,
-            // eject, or record the way a small square can, and this is the
-            // control that severs the link to the car.
-            width: stopLabel.implicitWidth + Style.space(18)
-            height: Style.space(26)
-            radius: height / 2
-            color: stopMouse.containsMouse ? root.dim(0.22) : root.dim(0.10)
-            border.width: 1
-            border.color: root.dim(0.32)
-            opacity: root.daemonStopping ? 0.5 : 1
-
-            Text {
-              id: stopLabel
-              anchors.centerIn: parent
-              text: root.daemonStopping ? "Stopping" : "Stop"
-              color: root.fg
-              font.family: root.bar.fontFamily
-              font.pixelSize: Math.round(Style.font.caption)
-              font.weight: Font.Medium
-            }
-
-            MouseArea {
-              id: stopMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: root.stopOmaCar()
-            }
-          }
-
-          Car {
-            id: heroWheel
-            visible: root.connected
-            anchors.right: parent.right
-            anchors.top: parent.top
-            width: Style.space(40)
-            height: width
-            tint: root.dim(root.engineOn ? 0.85 : 0.34)
-            running: root.engineOn
-            spin: root.state_ === "driving" ? 0.42 : 0
-            Behavior on spin { NumberAnimation { duration: 900; easing.type: Easing.OutBack } }
-          }
-
-          Column {
-            id: heroCol
-            anchors.left: parent.left
-            anchors.right: root.connected ? stopBtn.left : startBtn.left
-            anchors.rightMargin: Style.space(10)
-            spacing: Style.space(3)
-
-            SectionLabel { text: "OMACAR" }
-
-            Text {
-              text: root.car.name || "No car"
-              color: root.fg
-              font.family: root.bar.fontFamily
-              font.pixelSize: root.fTitle
-              font.weight: Font.DemiBold
-              elide: Text.ElideRight
-              width: heroCol.width
-            }
-
-            Muted {
-              visible: root.startError !== ""
-              text: root.startError
-              width: heroCol.width
-              wrapMode: Text.WordWrap
-            }
-
-            Row {
-              spacing: Style.space(7)
-
-              Rectangle {
-                width: Style.space(8); height: width; radius: width / 2
-                anchors.verticalCenter: parent.verticalCenter
-                color: root.state_ === "driving" ? root.cGreen
-                     : root.state_ === "idling" ? root.cAmber
-                     : root.state_ === "parked" ? root.cBlue : root.dim(0.3)
-              }
-
-              Muted {
-                anchors.verticalCenter: parent.verticalCenter
-                text: {
-                  var bits = [root.state_]
-                  if (root.vehicle.trim) bits.push(root.vehicle.trim)
-                  if (root.odometer) bits.push(root.grouped(root.uDist(root.odometer))
-                                               + " " + root.units.dist)
-                  return bits.join("   ·   ")
-                }
-              }
-            }
-
-            Row {
-              spacing: Style.space(6)
-              topPadding: Style.space(3)
-
-              Pill {
-                label: root.issues > 0
-                  ? root.issues + (root.issues === 1 ? " issue" : " issues") : "no faults"
-                tint: root.issues > 0 ? root.cAmber : root.cGreen
-              }
-
-              Pill {
-                label: (root.svc && root.svc.next)
-                  ? (root.svc.next.short || root.svc.next.item)
-                    + "  " + Math.max(0, root.svc.next.life) + "%" : ""
-                tint: root.lifeColor(root.svc && root.svc.next ? root.svc.next.life : null)
-              }
-
-              Pill {
-                label: root.car.simulated ? "simulated" : ""
-                tint: root.cCyan
-              }
-            }
-          }
+      // The panel is capped to the screen by fittedContentHeight, but a cap
+      // without a scroller just clips: on this laptop the content ran off the
+      // bottom and the rest was simply unreachable. Same idiom as Omarchy's
+      // own audio panel -- clip, a scrollbar only when it is needed, and the
+      // flick gesture enabled only when there is somewhere to flick to, so a
+      // short panel does not swallow drags on a touchscreen.
+      ScrollView {
+        id: scrollArea
+        anchors.fill: parent
+        clip: true
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        ScrollBar.vertical.policy: column.implicitHeight > height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+        Binding {
+          target: scrollArea.contentItem
+          property: "interactive"
+          value: column.implicitHeight > scrollArea.height
         }
 
-        PanelSeparator { foreground: root.fg }
+        Column {
+          id: column
+          width: scrollArea.availableWidth
+          spacing: Style.space(12)
 
-        // ---- tabs ----
-        Row {
-          id: tabRow
-          width: column.width
-          spacing: Style.space(4)
+          // ---- who, and what it is doing ----
+          Item {
+            width: column.width
+            height: heroCol.implicitHeight
 
-          Repeater {
-            model: root.tabs
-
+            // The start button lives exactly where the wheel does, because the
+            // wheel is meaningless when nothing is reading the car -- and two
+            // controls fighting for the corner would be worse than one that
+            // changes with the state.
             Rectangle {
-              required property var modelData
-              readonly property bool sel: root.tab === modelData.id
-              width: (tabRow.width - Style.space(4) * (root.tabs.length - 1)) / root.tabs.length
-              height: Math.round(root.fBody * 2.3)
-              radius: Style.space(6)
-              color: sel ? root.dim(0.14) : (tabMouse.containsMouse ? root.dim(0.07) : "transparent")
-              Behavior on color { ColorAnimation { duration: 120 } }
+              id: startBtn
+              visible: !root.connected
+              anchors.top: parent.top
+              width: Style.space(40)
+              height: width
+              radius: width / 2
+              color: startMouse.containsMouse ? root.dim(0.22) : root.dim(0.13)
+              border.width: 1
+              border.color: root.dim(0.4)
 
               Text {
                 anchors.centerIn: parent
-                text: parent.modelData.label
-                color: parent.sel ? root.fg : root.dim(0.55)
+                // Play when idle; dots while starting. It was briefly the STOP
+                // glyph for the working state, which is the one thing a start
+                // button must never look like.
+                text: root.daemonStarting ? "\u{F0772}" : "\u{F040A}"
+                color: root.fg
                 font.family: root.bar.fontFamily
-                font.pixelSize: root.fCaption
-                font.weight: parent.sel ? Font.DemiBold : Font.Normal
+                font.pixelSize: Math.round(Style.space(40) * 0.42)
+                opacity: root.daemonStarting ? 0.5 : 1
               }
 
               MouseArea {
-                id: tabMouse
+                id: startMouse
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: root.tab = parent.modelData.id
+                onClicked: root.startOmaCar()
               }
             }
-          }
-        }
 
-        // ================= NOW =================
-        Column {
-          width: column.width
-          spacing: Style.space(11)
-          visible: root.tab === "now"
-
-          // What the watchdog raised, above everything else on the tab: this
-          // is the car telling you something happened while you were not
-          // looking, and it outranks a reading you could go and take.
-          Repeater {
-            model: (root.alerts.alerts || []).slice(0, 3)
-
+            // Stop sits BESIDE the car, not on it. Making the icon itself the
+            // stop control would put "disconnect from the car" one stray tap
+            // away from the thing you look at to check the car -- and on a
+            // touchscreen in a moving vehicle that is a bad trade.
             Rectangle {
-              required property var modelData
-              width: parent.width
-              height: alertCol.implicitHeight + Style.space(18)
-              radius: Style.space(8)
-              color: modelData.urgency === "critical" ? root.dim(0.10) : root.dim(0.06)
+              id: stopBtn
+              visible: root.connected
+              anchors.right: heroWheel.left
+              anchors.rightMargin: Style.space(8)
+              anchors.verticalCenter: heroWheel.verticalCenter
+              // A word, not a glyph. "Stop" cannot be mistaken for pause,
+              // eject, or record the way a small square can, and this is the
+              // control that severs the link to the car.
+              width: stopLabel.implicitWidth + Style.space(18)
+              height: Style.space(26)
+              radius: height / 2
+              color: stopMouse.containsMouse ? root.dim(0.22) : root.dim(0.10)
               border.width: 1
-              border.color: modelData.urgency === "critical"
-                ? Qt.rgba(root.cRed.r, root.cRed.g, root.cRed.b, 0.45)
-                : modelData.urgency === "normal"
-                  ? Qt.rgba(root.cAmber.r, root.cAmber.g, root.cAmber.b, 0.38)
-                  : root.dim(0.12)
+              border.color: root.dim(0.32)
+              opacity: root.daemonStopping ? 0.5 : 1
 
-              Column {
-                id: alertCol
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.margins: Style.space(10)
-                spacing: Style.space(3)
-
-                Row {
-                  spacing: Style.space(8)
-                  Rectangle {
-                    width: Style.space(8); height: width; radius: width / 2
-                    anchors.verticalCenter: parent.verticalCenter
-                    color: modelData.urgency === "critical" ? root.cRed
-                         : modelData.urgency === "normal" ? root.cAmber : root.cBlue
-                  }
-                  Body {
-                    text: modelData.title || ""
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-                  Muted {
-                    text: root.since(root.nowSec - (modelData.at || 0))
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-                }
-
-                Muted {
-                  width: parent.width
-                  text: modelData.body || ""
-                  wrapMode: Text.WordWrap
-                  leftPadding: Style.space(16)
-                }
+              Text {
+                id: stopLabel
+                anchors.centerIn: parent
+                text: root.daemonStopping ? "Stopping" : "Stop"
+                color: root.fg
+                font.family: root.bar.fontFamily
+                font.pixelSize: Math.round(Style.font.caption)
+                font.weight: Font.Medium
               }
-            }
-          }
 
-          // The headline is road speed while moving and the odometer while
-          // not: a stopped car showing a big zero is a gauge shouting a
-          // number nobody asked for.
-          Item {
-            width: parent.width
-            height: nowHero.implicitHeight
-
-            Row {
-              id: nowHero
-              spacing: Style.space(12)
-
-              Column {
-                spacing: Style.space(1)
-                SectionLabel {
-                  text: root.state_ === "driving" ? "ROAD SPEED"
-                      : root.engineOn ? "IDLING" : "ODOMETER"
-                }
-                Row {
-                  spacing: Style.space(5)
-                  Text {
-                    text: root.state_ === "driving"
-                      ? String(Math.round(root.uSpeed(root.live.speed || 0)))
-                      : (root.engineOn ? root.grouped(root.live.rpm || 0)
-                         : root.grouped(root.uDist(root.odometer)))
-                    color: root.fg
-                    font.family: root.bar.fontFamily
-                    font.pixelSize: root.fHero
-                    font.weight: Font.DemiBold
-                  }
-                  Text {
-                    anchors.bottom: parent.children[0].bottom
-                    anchors.bottomMargin: Style.space(4)
-                    text: root.state_ === "driving" ? root.units.speed
-                        : (root.engineOn ? "rpm" : root.units.dist)
-                    color: root.ink(0.88)
-                    font.family: root.bar.fontFamily
-                    font.pixelSize: root.fCaption
-                  }
-                }
-              }
-            }
-          }
-
-          // Engine load, as the one bar that says how hard it is working.
-          Column {
-            width: parent.width
-            spacing: Style.space(4)
-            visible: root.engineOn
-
-            Item {
-              width: parent.width
-              height: loadLabel.implicitHeight
-              SectionLabel { id: loadLabel; text: "ENGINE LOAD" }
-              Muted {
-                anchors.right: parent.right
-                text: Math.round(root.live.load || 0) + "%"
-                  + (root.live.throttle !== undefined
-                     ? "   ·   throttle " + Math.round(root.live.throttle) + "%" : "")
+              MouseArea {
+                id: stopMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.stopOmaCar()
               }
             }
 
-            MiniMeter {
-              width: parent.width
-              foreground: root.fg
-              value: (root.live.load || 0) / 100
-              tint: (root.live.load || 0) > 80 ? root.cAmber : root.cGreen
+            Car {
+              id: heroWheel
+              visible: root.connected
+              anchors.top: parent.top
+              width: Style.space(40)
+              height: width
+              tint: root.dim(root.engineOn ? 0.85 : 0.34)
+              running: root.engineOn
+              spin: root.state_ === "driving" ? 0.42 : 0
+              Behavior on spin { NumberAnimation { duration: 900; easing.type: Easing.OutBack } }
             }
-          }
-
-          Grid {
-            width: parent.width
-            columns: 3
-            columnSpacing: Style.space(10)
-            rowSpacing: Style.space(12)
-
-            // Instantaneous economy while moving; today's average while not.
-            // A stopped car has no economy at all — the figure is undefined,
-            // not zero — and a dash where a number lives reads as a fault.
-            Stat {
-              readonly property bool liveEcon: root.state_ === "driving" && root.live.lphk
-              width: (parent.width - Style.space(20)) / 3
-              label: "ECONOMY"
-              value: liveEcon ? root.econStr(root.live.lphk, false)
-                : (root.perf && root.perf.day ? root.econStr(root.perf.day.lphk, false) : "—")
-              unit: root.units.econ
-              note: liveEcon
-                ? (root.live.basis === "load" ? "load estimate" : "from mass air flow")
-                : "today's average"
-            }
-
-            Stat {
-              width: (parent.width - Style.space(20)) / 3
-              label: "COOLANT"
-              value: root.live.coolant !== undefined && root.live.coolant !== null
-                ? String(Math.round(root.uTemp(root.live.coolant))) : "—"
-              unit: root.units.temp
-              tint: (root.live.coolant || 0) > 105 ? root.cRed : root.fg
-              note: (root.live.coolant || 0) < 70 ? "still warming" : "at temperature"
-            }
-
-            Stat {
-              width: (parent.width - Style.space(20)) / 3
-              label: "BATTERY"
-              value: root.live.volts ? root.live.volts.toFixed(1) : "—"
-              unit: "V"
-              tint: (root.live.volts || 14) < 12.2 ? root.cAmber : root.fg
-              note: (root.live.volts || 0) > 13.2 ? "charging" : "not charging"
-            }
-
-            Stat {
-              width: (parent.width - Style.space(20)) / 3
-              label: "FUEL"
-              value: root.live.fuel_pct !== undefined && root.live.fuel_pct !== null
-                ? String(Math.round(root.live.fuel_pct)) : "—"
-              unit: "%"
-              tint: (root.live.fuel_pct || 100) < 15 ? root.cAmber : root.fg
-              note: root.vehicle.tank_l
-                ? "≈ " + root.uVol(root.vehicle.tank_l * (root.live.fuel_pct || 0) / 100).toFixed(1)
-                  + " " + root.units.vol : ""
-            }
-
-            Stat {
-              width: (parent.width - Style.space(20)) / 3
-              label: "FUEL TRIM"
-              value: root.live.ltft !== undefined && root.live.ltft !== null
-                ? (root.live.ltft > 0 ? "+" : "") + root.live.ltft.toFixed(1) : "—"
-              unit: "%"
-              tint: Math.abs(root.live.ltft || 0) > 6 ? root.cAmber : root.fg
-              note: "long term, bank 1"
-            }
-
-            Stat {
-              width: (parent.width - Style.space(20)) / 3
-              label: "INTAKE AIR"
-              value: root.live.intake !== undefined && root.live.intake !== null
-                ? String(Math.round(root.uTemp(root.live.intake))) : "—"
-              unit: root.units.temp
-              note: root.live.ambient !== undefined && root.live.ambient !== null
-                ? "ambient " + Math.round(root.uTemp(root.live.ambient)) + root.units.temp : ""
-            }
-          }
-
-          PanelSeparator { foreground: root.fg }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(2)
-
-            SectionLabel { text: "CONNECTION" }
-
-            KV {
-              width: parent.width
-              k: "Adapter"
-              v: (root.live.adapter || root.vehicle.adapter || "—")
-                 + (root.live.port ? "   ·   " + root.live.port : "")
-            }
-            KV {
-              width: parent.width
-              k: "Protocol"
-              v: root.live.protocol || root.vehicle.protocol || "—"
-            }
-            KV {
-              width: parent.width
-              k: "Reading"
-              v: root.connected
-                ? (root.car.stale !== null && root.car.stale !== undefined
-                   ? root.car.stale + "s old" : "live")
-                : "no link"
-              tint: root.connected ? root.cGreen : root.dim(0.5)
-            }
-            KV {
-              width: parent.width
-              visible: root.vehicle.vin !== undefined
-              k: "VIN"
-              v: root.vehicle.vin || ""
-            }
-          }
-        }
-
-        // ================= DRIVE =================
-        Column {
-          width: column.width
-          spacing: Style.space(12)
-          visible: root.tab === "drive"
-
-          Grid {
-            width: parent.width
-            columns: 2
-            columnSpacing: Style.space(12)
-            rowSpacing: Style.space(12)
-
-            Repeater {
-              model: [
-                { "key": "day",   "label": "TODAY" },
-                { "key": "week",  "label": "LAST 7 DAYS" },
-                { "key": "month", "label": "THIS MONTH" },
-                { "key": "year",  "label": "THIS YEAR" }
-              ]
-
-              Stat {
-                required property var modelData
-                readonly property var w: root.perf ? root.perf[modelData.key] : null
-                readonly property var d: (w && w.prev)
-                  ? root.econDelta(w.lphk, w.prev.lphk) : null
-
-                width: (parent.width - Style.space(12)) / 2
-                label: modelData.label
-                value: w ? root.distStr(w.km, false) : "—"
-                unit: root.units.dist
-                note: w ? root.econStr(w.lphk) + (d && d.text
-                        ? "   " + d.arrow + d.text : "") : ""
-                noteTint: d ? root.deltaColor(d) : root.dim(0.5)
-              }
-            }
-          }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(6)
-            visible: root.perf && (root.perf.months || []).length > 1
-
-            Item {
-              width: parent.width
-              height: monthsLabel.implicitHeight
-              SectionLabel { id: monthsLabel; text: "TWELVE MONTHS" }
-              Row {
-                anchors.right: parent.right
-                spacing: Style.space(9)
-                Row {
-                  spacing: Style.space(4)
-                  Rectangle {
-                    width: Style.space(7); height: Style.space(7); radius: 2
-                    color: root.cBlue
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-                  Muted { text: root.units.dist; anchors.verticalCenter: parent.verticalCenter }
-                }
-                Row {
-                  spacing: Style.space(4)
-                  Rectangle {
-                    width: Style.space(7); height: Style.space(2); radius: 1
-                    color: root.cAmber
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-                  Muted { text: root.units.econ; anchors.verticalCenter: parent.verticalCenter }
-                }
-              }
-            }
-
-            MonthChart {
-              width: parent.width
-              height: Style.space(96)
-              foreground: root.fg
-              accent: root.cBlue
-              line: root.cAmber
-              labelSize: root.fMicro
-              series: {
-                var out = [], m = (root.perf ? root.perf.months : []) || []
-                for (var i = 0; i < m.length; i++) {
-                  var mm = parseInt(String(m[i].month).split("-")[1], 10)
-                  out.push({
-                    "label": root.monthNames[mm - 1].charAt(0),
-                    "dist": root.uDist(m[i].km),
-                    "econ": m[i].lphk ? root.uEcon(m[i].lphk) : null
-                  })
-                }
-                return out
-              }
-            }
-          }
-
-          PanelSeparator { foreground: root.fg }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(2)
-
-            SectionLabel { text: "THIS YEAR" }
-
-            KV {
-              width: parent.width
-              k: "Fuel burned"
-              v: root.perf && root.perf.year
-                ? root.uVol(root.perf.year.litres).toFixed(0) + " " + root.units.vol
-                  + (root.perf.year.cost ? "   ·   " + root.money(root.perf.year.cost) : "")
-                : "—"
-            }
-            KV {
-              width: parent.width
-              k: "Trips"
-              v: root.perf && root.perf.year
-                ? root.perf.year.trips + " over " + root.perf.year.days + " days" : "—"
-            }
-            KV {
-              width: parent.width
-              k: "Engine running"
-              v: root.perf && root.perf.year ? root.mins(root.perf.year.engine_s) : "—"
-            }
-            KV {
-              width: parent.width
-              k: "Fastest"
-              v: root.perf && root.perf.year && root.perf.year.top_kph
-                ? Math.round(root.uSpeed(root.perf.year.top_kph)) + " " + root.units.speed : "—"
-            }
-            KV {
-              width: parent.width
-              k: "Records from"
-              v: root.perf ? root.isoDate(root.perf.since) : "—"
-            }
-          }
-
-          PanelSeparator { foreground: root.fg }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(4)
-            visible: (root.car.trips || []).length > 0
-
-            SectionLabel { text: "RECENT TRIPS" }
-
-            Repeater {
-              model: (root.car.trips || []).slice(0, 5)
-
-              Item {
-                required property var modelData
-                width: parent.width
-                height: tripRow.implicitHeight + Style.space(6)
-
-                Row {
-                  id: tripRow
-                  anchors.left: parent.left
-                  anchors.right: parent.right
-                  anchors.verticalCenter: parent.verticalCenter
-                  spacing: Style.space(10)
-
-                  Column {
-                    width: (parent.width - Style.space(20)) * 0.46
-                    spacing: Style.space(1)
-                    Body {
-                      text: modelData.label || modelData.kind
-                      elide: Text.ElideRight
-                      width: parent.width
-                    }
-                    Muted {
-                      text: root.shortDate(modelData.t0) + "  " + root.clockOf(modelData.t0)
-                        + "   ·   " + root.mins(modelData.moving_s + modelData.idle_s)
-                    }
-                  }
-
-                  Body {
-                    width: (parent.width - Style.space(20)) * 0.27
-                    text: root.distStr(modelData.km)
-                    horizontalAlignment: Text.AlignRight
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-
-                  Body {
-                    width: (parent.width - Style.space(20)) * 0.27
-                    text: root.econStr(modelData.lphk)
-                    horizontalAlignment: Text.AlignRight
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        // ================= HEALTH =================
-        Column {
-          width: column.width
-          spacing: Style.space(10)
-          visible: root.tab === "health"
-
-          Text {
-            width: parent.width
-            visible: (root.car.faults || []).length === 0 && (root.car.watch || []).length === 0
-            text: root.car.have_history
-              ? "No trouble codes stored, and nothing in the samples worth flagging."
-              : "No diagnostics yet."
-            color: root.ink(0.88)
-            wrapMode: Text.WordWrap
-            font.family: root.bar.fontFamily
-            font.pixelSize: root.fCaption
-          }
-
-          // Every code the ECU is holding, with the day it first appeared and
-          // the day it last did — a code that set once in February is a
-          // different problem from one that sets every cold morning.
-          Repeater {
-            model: root.car.faults || []
-
-            Rectangle {
-              required property var modelData
-              width: parent.width
-              height: faultCol.implicitHeight + Style.space(20)
-              radius: Style.space(8)
-              color: modelData.active ? root.dim(0.06) : "transparent"
-              border.width: 1
-              border.color: modelData.active
-                ? Qt.rgba(root.severityColor(modelData.severity).r,
-                          root.severityColor(modelData.severity).g,
-                          root.severityColor(modelData.severity).b, 0.35)
-                : root.dim(0.10)
-
-              Column {
-                id: faultCol
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.margins: Style.space(10)
-                spacing: Style.space(4)
-
-                Item {
-                  width: parent.width
-                  height: codeText.implicitHeight
-
-                  Text {
-                    id: codeText
-                    text: modelData.code
-                    color: modelData.active ? root.severityColor(modelData.severity)
-                                            : root.dim(0.45)
-                    font.family: root.bar.fontFamily
-                    font.pixelSize: root.fBody
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 0.8
-                  }
-
-                  Pill {
-                    anchors.right: parent.right
-                    anchors.verticalCenter: codeText.verticalCenter
-                    label: modelData.status
-                    tint: modelData.active ? root.severityColor(modelData.severity)
-                                           : root.dim(0.4)
-                  }
-                }
-
-                Body {
-                  width: parent.width
-                  text: modelData.descr
-                  wrapMode: Text.WordWrap
-                  color: modelData.active ? root.fg : root.dim(0.55)
-                }
-
-                Muted {
-                  width: parent.width
-                  visible: modelData.detail !== undefined && modelData.detail !== ""
-                  text: modelData.detail || ""
-                  wrapMode: Text.WordWrap
-                }
-
-                Muted {
-                  width: parent.width
-                  text: {
-                    var bits = []
-                    if (modelData.system) bits.push(modelData.system)
-                    if (modelData.count) bits.push("seen " + modelData.count + "×")
-                    if (modelData.first_seen)
-                      bits.push("first " + root.shortDate(modelData.first_seen))
-                    if (modelData.last_seen)
-                      bits.push("last " + root.shortDate(modelData.last_seen))
-                    return bits.join("   ·   ")
-                  }
-                  color: root.dim(0.4)
-                }
-
-                // The freeze frame: what the engine was doing at the instant
-                // the code set. It is the difference between "the sensor is
-                // bad" and "the sensor is bad on a cold start".
-                Muted {
-                  width: parent.width
-                  visible: modelData.freeze !== null && modelData.freeze !== undefined
-                  text: {
-                    var f = modelData.freeze
-                    if (!f) return ""
-                    var bits = []
-                    if (f.rpm !== undefined) bits.push(root.grouped(f.rpm) + " rpm")
-                    if (f.speed !== undefined)
-                      bits.push(Math.round(root.uSpeed(f.speed)) + " " + root.units.speed)
-                    if (f.coolant !== undefined)
-                      bits.push(Math.round(root.uTemp(f.coolant)) + root.units.temp)
-                    if (f.load !== undefined) bits.push(f.load + "% load")
-                    if (f.ltft !== undefined) bits.push("trim +" + f.ltft + "%")
-                    if (f.soc !== undefined) bits.push("IMA " + f.soc + "%")
-                    return bits.length ? "Freeze frame:  " + bits.join("   ") : ""
-                  }
-                  color: root.dim(0.45)
-                }
-              }
-            }
-          }
-
-          // Not codes — things the sample stream says before the car has
-          // decided to complain about them.
-          Column {
-            width: parent.width
-            spacing: Style.space(6)
-            visible: (root.car.watch || []).length > 0
-
-            SectionLabel { text: "NOTICED IN THE DATA" }
-
-            Repeater {
-              model: root.car.watch || []
-
-              Column {
-                required property var modelData
-                width: parent.width
-                spacing: Style.space(2)
-
-                Row {
-                  spacing: Style.space(7)
-                  Rectangle {
-                    width: Style.space(7); height: width; radius: width / 2
-                    anchors.verticalCenter: parent.verticalCenter
-                    color: root.severityColor(modelData.severity)
-                  }
-                  Body {
-                    text: modelData.title
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-                  Muted {
-                    visible: modelData.seen !== null && modelData.seen !== undefined
-                    text: modelData.seen ? root.shortDate(modelData.seen) : ""
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-                }
-
-                Muted {
-                  width: parent.width
-                  text: modelData.detail || ""
-                  wrapMode: Text.WordWrap
-                  leftPadding: Style.space(14)
-                }
-              }
-            }
-          }
-        }
-
-        // ================= SERVICE =================
-        Column {
-          width: column.width
-          spacing: Style.space(11)
-          visible: root.tab === "service"
-
-          // The one that is nearest, said plainly — this is the question the
-          // tab exists to answer, and it should not need reading a table.
-          Rectangle {
-            width: parent.width
-            visible: root.svc !== null && root.svc.next !== undefined
-            height: nextCol.implicitHeight + Style.space(22)
-            radius: Style.space(9)
-            color: root.dim(0.06)
-            border.width: 1
-            border.color: Qt.rgba(root.lifeColor(root.svc ? root.svc.next.life : null).r,
-                                  root.lifeColor(root.svc ? root.svc.next.life : null).g,
-                                  root.lifeColor(root.svc ? root.svc.next.life : null).b, 0.38)
 
             Column {
-              id: nextCol
-              anchors.left: parent.left
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              anchors.margins: Style.space(12)
-              spacing: Style.space(6)
+              id: heroCol
+              anchors.right: root.connected ? stopBtn.left : startBtn.left
+              anchors.rightMargin: Style.space(10)
+              spacing: Style.space(3)
 
-              SectionLabel { text: "NEXT DUE" }
+              SectionLabel { text: "OMACAR" }
+
+              Text {
+                text: root.car.name || "No car"
+                color: root.fg
+                font.family: root.bar.fontFamily
+                font.pixelSize: root.fTitle
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+                width: heroCol.width
+              }
+
+              Muted {
+                visible: root.startError !== ""
+                text: root.startError
+                width: heroCol.width
+                wrapMode: Text.WordWrap
+              }
+
+              Row {
+                spacing: Style.space(7)
+
+                Rectangle {
+                  width: Style.space(8); height: width; radius: width / 2
+                  anchors.verticalCenter: parent.verticalCenter
+                  color: root.state_ === "driving" ? root.cGreen
+                       : root.state_ === "idling" ? root.cAmber
+                       : root.state_ === "parked" ? root.cBlue : root.dim(0.3)
+                }
+
+                Muted {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: {
+                    var bits = [root.state_]
+                    if (root.vehicle.trim) bits.push(root.vehicle.trim)
+                    if (root.odometer) bits.push(root.grouped(root.uDist(root.odometer))
+                                                 + " " + root.units.dist)
+                    return bits.join("   ·   ")
+                  }
+                }
+              }
+
+              Row {
+                spacing: Style.space(6)
+                topPadding: Style.space(3)
+
+                Pill {
+                  label: root.issues > 0
+                    ? root.issues + (root.issues === 1 ? " issue" : " issues") : "no faults"
+                  tint: root.issues > 0 ? root.cAmber : root.cGreen
+                }
+
+                Pill {
+                  label: (root.svc && root.svc.next)
+                    ? (root.svc.next.short || root.svc.next.item)
+                      + "  " + Math.max(0, root.svc.next.life) + "%" : ""
+                  tint: root.lifeColor(root.svc && root.svc.next ? root.svc.next.life : null)
+                }
+
+                Pill {
+                  label: root.car.simulated ? "simulated" : ""
+                  tint: root.cCyan
+                }
+              }
+            }
+          }
+
+          PanelSeparator { foreground: root.fg }
+
+          // ---- tabs ----
+          Row {
+            id: tabRow
+            width: column.width
+            spacing: Style.space(4)
+
+            Repeater {
+              model: root.tabs
+
+              Rectangle {
+                required property var modelData
+                readonly property bool sel: root.tab === modelData.id
+                width: (tabRow.width - Style.space(4) * (root.tabs.length - 1)) / root.tabs.length
+                height: Math.round(root.fBody * 2.3)
+                radius: Style.space(6)
+                color: sel ? root.dim(0.14) : (tabMouse.containsMouse ? root.dim(0.07) : "transparent")
+                Behavior on color { ColorAnimation { duration: 120 } }
+
+                Text {
+                  anchors.centerIn: parent
+                  text: parent.modelData.label
+                  color: parent.sel ? root.fg : root.dim(0.55)
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: root.fCaption
+                  font.weight: parent.sel ? Font.DemiBold : Font.Normal
+                }
+
+                MouseArea {
+                  id: tabMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.tab = parent.modelData.id
+                }
+              }
+            }
+          }
+
+          // ================= NOW =================
+          Column {
+            width: column.width
+            spacing: Style.space(11)
+            visible: root.tab === "now"
+
+            // What the watchdog raised, above everything else on the tab: this
+            // is the car telling you something happened while you were not
+            // looking, and it outranks a reading you could go and take.
+            Repeater {
+              model: (root.alerts.alerts || []).slice(0, 3)
+
+              Rectangle {
+                required property var modelData
+                width: parent.width
+                height: alertCol.implicitHeight + Style.space(18)
+                radius: Style.space(8)
+                color: modelData.urgency === "critical" ? root.dim(0.10) : root.dim(0.06)
+                border.width: 1
+                border.color: modelData.urgency === "critical"
+                  ? Qt.rgba(root.cRed.r, root.cRed.g, root.cRed.b, 0.45)
+                  : modelData.urgency === "normal"
+                    ? Qt.rgba(root.cAmber.r, root.cAmber.g, root.cAmber.b, 0.38)
+                    : root.dim(0.12)
+
+                Column {
+                  id: alertCol
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.margins: Style.space(10)
+                  spacing: Style.space(3)
+
+                  Row {
+                    spacing: Style.space(8)
+                    Rectangle {
+                      width: Style.space(8); height: width; radius: width / 2
+                      anchors.verticalCenter: parent.verticalCenter
+                      color: modelData.urgency === "critical" ? root.cRed
+                           : modelData.urgency === "normal" ? root.cAmber : root.cBlue
+                    }
+                    Body {
+                      text: modelData.title || ""
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Muted {
+                      text: root.since(root.nowSec - (modelData.at || 0))
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
+                  }
+
+                  Muted {
+                    width: parent.width
+                    text: modelData.body || ""
+                    wrapMode: Text.WordWrap
+                    leftPadding: Style.space(16)
+                  }
+                }
+              }
+            }
+
+            // The headline is road speed while moving and the odometer while
+            // not: a stopped car showing a big zero is a gauge shouting a
+            // number nobody asked for.
+            Item {
+              width: parent.width
+              height: nowHero.implicitHeight
+
+              Row {
+                id: nowHero
+                spacing: Style.space(12)
+
+                Column {
+                  spacing: Style.space(1)
+                  SectionLabel {
+                    text: root.state_ === "driving" ? "ROAD SPEED"
+                        : root.engineOn ? "IDLING" : "ODOMETER"
+                  }
+                  Row {
+                    spacing: Style.space(5)
+                    Text {
+                      text: root.state_ === "driving"
+                        ? String(Math.round(root.uSpeed(root.live.speed || 0)))
+                        : (root.engineOn ? root.grouped(root.live.rpm || 0)
+                           : root.grouped(root.uDist(root.odometer)))
+                      color: root.fg
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: root.fHero
+                      font.weight: Font.DemiBold
+                    }
+                    Text {
+                      anchors.bottom: parent.children[0].bottom
+                      anchors.bottomMargin: Style.space(4)
+                      text: root.state_ === "driving" ? root.units.speed
+                          : (root.engineOn ? "rpm" : root.units.dist)
+                      color: root.ink(0.88)
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: root.fCaption
+                    }
+                  }
+                }
+              }
+            }
+
+            // Engine load, as the one bar that says how hard it is working.
+            Column {
+              width: parent.width
+              spacing: Style.space(4)
+              visible: root.engineOn
 
               Item {
                 width: parent.width
-                height: nextName.implicitHeight
-
-                Text {
-                  id: nextName
-                  text: root.svc ? root.svc.next.item : ""
-                  color: root.fg
-                  font.family: root.bar.fontFamily
-                  font.pixelSize: root.fTitle
-                  font.weight: Font.DemiBold
-                }
-
-                Text {
-                  anchors.right: parent.right
-                  anchors.baseline: nextName.baseline
-                  text: root.svc ? Math.max(0, root.svc.next.life) + "%" : ""
-                  color: root.lifeColor(root.svc ? root.svc.next.life : null)
-                  font.family: root.bar.fontFamily
-                  font.pixelSize: root.fTitle
-                  font.weight: Font.DemiBold
+                height: loadLabel.implicitHeight
+                SectionLabel { id: loadLabel; text: "ENGINE LOAD" }
+                Muted {
+                  text: Math.round(root.live.load || 0) + "%"
+                    + (root.live.throttle !== undefined
+                       ? "   ·   throttle " + Math.round(root.live.throttle) + "%" : "")
                 }
               }
 
               MiniMeter {
                 width: parent.width
                 foreground: root.fg
-                value: root.svc ? Math.max(0, root.svc.next.life) / 100 : 0
-                tint: root.lifeColor(root.svc ? root.svc.next.life : null)
+                value: (root.live.load || 0) / 100
+                tint: (root.live.load || 0) > 80 ? root.cAmber : root.cGreen
+              }
+            }
+
+            Grid {
+              width: parent.width
+              columns: 3
+              columnSpacing: Style.space(10)
+              rowSpacing: Style.space(12)
+
+              // Instantaneous economy while moving; today's average while not.
+              // A stopped car has no economy at all — the figure is undefined,
+              // not zero — and a dash where a number lives reads as a fault.
+              Stat {
+                readonly property bool liveEcon: root.state_ === "driving" && root.live.lphk
+                width: (parent.width - Style.space(20)) / 3
+                label: "ECONOMY"
+                value: liveEcon ? root.econStr(root.live.lphk, false)
+                  : (root.perf && root.perf.day ? root.econStr(root.perf.day.lphk, false) : "—")
+                unit: root.units.econ
+                note: liveEcon
+                  ? (root.live.basis === "load" ? "load estimate" : "from mass air flow")
+                  : "today's average"
               }
 
-              Muted {
-                width: parent.width
-                wrapMode: Text.WordWrap
-                text: {
-                  if (!root.svc) return ""
-                  var s = root.svc.next, bits = []
-                  if (s.km_left !== null && s.km_left !== undefined)
-                    bits.push(s.km_left < 0
-                      ? "overdue by " + root.distStr(Math.abs(s.km_left))
-                      : "in " + root.distStr(s.km_left))
-                  if (s.due_on) bits.push("by " + root.isoDate(s.due_on))
-                  if (s.last_on) bits.push("last done " + root.isoDate(s.last_on)
-                    + (s.last_km ? " at " + root.grouped(root.uDist(s.last_km))
-                       + " " + root.units.dist : ""))
-                  return bits.join("   ·   ")
-                }
+              Stat {
+                width: (parent.width - Style.space(20)) / 3
+                label: "COOLANT"
+                value: root.live.coolant !== undefined && root.live.coolant !== null
+                  ? String(Math.round(root.uTemp(root.live.coolant))) : "—"
+                unit: root.units.temp
+                tint: (root.live.coolant || 0) > 105 ? root.cRed : root.fg
+                note: (root.live.coolant || 0) < 70 ? "still warming" : "at temperature"
               }
 
-              Muted {
+              Stat {
+                width: (parent.width - Style.space(20)) / 3
+                label: "BATTERY"
+                value: root.live.volts ? root.live.volts.toFixed(1) : "—"
+                unit: "V"
+                tint: (root.live.volts || 14) < 12.2 ? root.cAmber : root.fg
+                note: (root.live.volts || 0) > 13.2 ? "charging" : "not charging"
+              }
+
+              Stat {
+                width: (parent.width - Style.space(20)) / 3
+                label: "FUEL"
+                value: root.live.fuel_pct !== undefined && root.live.fuel_pct !== null
+                  ? String(Math.round(root.live.fuel_pct)) : "—"
+                unit: "%"
+                tint: (root.live.fuel_pct || 100) < 15 ? root.cAmber : root.fg
+                note: root.vehicle.tank_l
+                  ? "≈ " + root.uVol(root.vehicle.tank_l * (root.live.fuel_pct || 0) / 100).toFixed(1)
+                    + " " + root.units.vol : ""
+              }
+
+              Stat {
+                width: (parent.width - Style.space(20)) / 3
+                label: "FUEL TRIM"
+                value: root.live.ltft !== undefined && root.live.ltft !== null
+                  ? (root.live.ltft > 0 ? "+" : "") + root.live.ltft.toFixed(1) : "—"
+                unit: "%"
+                tint: Math.abs(root.live.ltft || 0) > 6 ? root.cAmber : root.fg
+                note: "long term, bank 1"
+              }
+
+              Stat {
+                width: (parent.width - Style.space(20)) / 3
+                label: "INTAKE AIR"
+                value: root.live.intake !== undefined && root.live.intake !== null
+                  ? String(Math.round(root.uTemp(root.live.intake))) : "—"
+                unit: root.units.temp
+                note: root.live.ambient !== undefined && root.live.ambient !== null
+                  ? "ambient " + Math.round(root.uTemp(root.live.ambient)) + root.units.temp : ""
+              }
+            }
+
+            PanelSeparator { foreground: root.fg }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(2)
+
+              SectionLabel { text: "CONNECTION" }
+
+              KV {
                 width: parent.width
-                visible: root.svc && root.svc.next.note !== ""
-                text: root.svc ? (root.svc.next.note || "") : ""
-                color: root.dim(0.4)
-                wrapMode: Text.WordWrap
+                k: "Adapter"
+                v: (root.live.adapter || root.vehicle.adapter || "—")
+                   + (root.live.port ? "   ·   " + root.live.port : "")
+              }
+              KV {
+                width: parent.width
+                k: "Protocol"
+                v: root.live.protocol || root.vehicle.protocol || "—"
+              }
+              KV {
+                width: parent.width
+                k: "Reading"
+                v: root.connected
+                  ? (root.car.stale !== null && root.car.stale !== undefined
+                     ? root.car.stale + "s old" : "live")
+                  : "no link"
+                tint: root.connected ? root.cGreen : root.dim(0.5)
+              }
+              KV {
+                width: parent.width
+                visible: root.vehicle.vin !== undefined
+                k: "VIN"
+                v: root.vehicle.vin || ""
               }
             }
           }
 
+          // ================= DRIVE =================
           Column {
-            width: parent.width
-            spacing: Style.space(8)
-            visible: root.svc !== null
+            width: column.width
+            spacing: Style.space(12)
+            visible: root.tab === "drive"
 
-            Item {
+            Grid {
               width: parent.width
-              height: bookLabel.implicitHeight
-              SectionLabel { id: bookLabel; text: "THE BOOK" }
-              Muted {
-                anchors.right: parent.right
-                text: root.svc
-                  ? (root.svc.due > 0 ? root.svc.due + " due or due soon" : "nothing due")
-                  : ""
-                color: root.svc && root.svc.due > 0 ? root.cAmber : root.dim(0.45)
+              columns: 2
+              columnSpacing: Style.space(12)
+              rowSpacing: Style.space(12)
+
+              Repeater {
+                model: [
+                  { "key": "day",   "label": "TODAY" },
+                  { "key": "week",  "label": "LAST 7 DAYS" },
+                  { "key": "month", "label": "THIS MONTH" },
+                  { "key": "year",  "label": "THIS YEAR" }
+                ]
+
+                Stat {
+                  required property var modelData
+                  readonly property var w: root.perf ? root.perf[modelData.key] : null
+                  readonly property var d: (w && w.prev)
+                    ? root.econDelta(w.lphk, w.prev.lphk) : null
+
+                  width: (parent.width - Style.space(12)) / 2
+                  label: modelData.label
+                  value: w ? root.distStr(w.km, false) : "—"
+                  unit: root.units.dist
+                  note: w ? root.econStr(w.lphk) + (d && d.text
+                          ? "   " + d.arrow + d.text : "") : ""
+                  noteTint: d ? root.deltaColor(d) : root.dim(0.5)
+                }
               }
             }
 
-            Repeater {
-              model: root.svc ? root.svc.items : []
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+              visible: root.perf && (root.perf.months || []).length > 1
 
-              Column {
-                required property var modelData
+              Item {
                 width: parent.width
-                spacing: Style.space(3)
-
-                Item {
-                  width: parent.width
-                  height: itemName.implicitHeight
-
+                height: monthsLabel.implicitHeight
+                SectionLabel { id: monthsLabel; text: "TWELVE MONTHS" }
+                Row {
+                  spacing: Style.space(9)
                   Row {
-                    id: itemName
-                    spacing: Style.space(6)
-                    Body {
-                      text: modelData.item
+                    spacing: Style.space(4)
+                    Rectangle {
+                      width: Style.space(7); height: Style.space(7); radius: 2
+                      color: root.cBlue
                       anchors.verticalCenter: parent.verticalCenter
                     }
-                    // Honda's Maintenance Minder letters and numbers, kept
-                    // because the shop asks for the code, not the name.
+                    Muted { text: root.units.dist; anchors.verticalCenter: parent.verticalCenter }
+                  }
+                  Row {
+                    spacing: Style.space(4)
                     Rectangle {
-                      visible: modelData.code !== ""
-                      width: Math.round(root.fMicro * 1.9)
-                      height: width
-                      radius: Style.space(3)
-                      color: root.dim(0.12)
+                      width: Style.space(7); height: Style.space(2); radius: 1
+                      color: root.cAmber
                       anchors.verticalCenter: parent.verticalCenter
-                      Text {
-                        anchors.centerIn: parent
-                        text: modelData.code
-                        color: root.dim(0.6)
-                        font.family: root.bar.fontFamily
-                        font.pixelSize: root.fMicro
-                        font.weight: Font.DemiBold
+                    }
+                    Muted { text: root.units.econ; anchors.verticalCenter: parent.verticalCenter }
+                  }
+                }
+              }
+
+              MonthChart {
+                width: parent.width
+                height: Style.space(96)
+                foreground: root.fg
+                accent: root.cBlue
+                line: root.cAmber
+                labelSize: root.fMicro
+                series: {
+                  var out = [], m = (root.perf ? root.perf.months : []) || []
+                  for (var i = 0; i < m.length; i++) {
+                    var mm = parseInt(String(m[i].month).split("-")[1], 10)
+                    out.push({
+                      "label": root.monthNames[mm - 1].charAt(0),
+                      "dist": root.uDist(m[i].km),
+                      "econ": m[i].lphk ? root.uEcon(m[i].lphk) : null
+                    })
+                  }
+                  return out
+                }
+              }
+            }
+
+            PanelSeparator { foreground: root.fg }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(2)
+
+              SectionLabel { text: "THIS YEAR" }
+
+              KV {
+                width: parent.width
+                k: "Fuel burned"
+                v: root.perf && root.perf.year
+                  ? root.uVol(root.perf.year.litres).toFixed(0) + " " + root.units.vol
+                    + (root.perf.year.cost ? "   ·   " + root.money(root.perf.year.cost) : "")
+                  : "—"
+              }
+              KV {
+                width: parent.width
+                k: "Trips"
+                v: root.perf && root.perf.year
+                  ? root.perf.year.trips + " over " + root.perf.year.days + " days" : "—"
+              }
+              KV {
+                width: parent.width
+                k: "Engine running"
+                v: root.perf && root.perf.year ? root.mins(root.perf.year.engine_s) : "—"
+              }
+              KV {
+                width: parent.width
+                k: "Fastest"
+                v: root.perf && root.perf.year && root.perf.year.top_kph
+                  ? Math.round(root.uSpeed(root.perf.year.top_kph)) + " " + root.units.speed : "—"
+              }
+              KV {
+                width: parent.width
+                k: "Records from"
+                v: root.perf ? root.isoDate(root.perf.since) : "—"
+              }
+            }
+
+            PanelSeparator { foreground: root.fg }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(4)
+              visible: (root.car.trips || []).length > 0
+
+              SectionLabel { text: "RECENT TRIPS" }
+
+              Repeater {
+                model: (root.car.trips || []).slice(0, 5)
+
+                Item {
+                  required property var modelData
+                  width: parent.width
+                  height: tripRow.implicitHeight + Style.space(6)
+
+                  Row {
+                    id: tripRow
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(10)
+
+                    Column {
+                      width: (parent.width - Style.space(20)) * 0.46
+                      spacing: Style.space(1)
+                      Body {
+                        text: modelData.label || modelData.kind
+                        elide: Text.ElideRight
+                        width: parent.width
                       }
+                      Muted {
+                        text: root.shortDate(modelData.t0) + "  " + root.clockOf(modelData.t0)
+                          + "   ·   " + root.mins(modelData.moving_s + modelData.idle_s)
+                      }
+                    }
+
+                    Body {
+                      width: (parent.width - Style.space(20)) * 0.27
+                      text: root.distStr(modelData.km)
+                      horizontalAlignment: Text.AlignRight
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Body {
+                      width: (parent.width - Style.space(20)) * 0.27
+                      text: root.econStr(modelData.lphk)
+                      horizontalAlignment: Text.AlignRight
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          // ================= HEALTH =================
+          Column {
+            width: column.width
+            spacing: Style.space(10)
+            visible: root.tab === "health"
+
+            Text {
+              width: parent.width
+              visible: (root.car.faults || []).length === 0 && (root.car.watch || []).length === 0
+              text: root.car.have_history
+                ? "No trouble codes stored, and nothing in the samples worth flagging."
+                : "No diagnostics yet."
+              color: root.ink(0.88)
+              wrapMode: Text.WordWrap
+              font.family: root.bar.fontFamily
+              font.pixelSize: root.fCaption
+            }
+
+            // Every code the ECU is holding, with the day it first appeared and
+            // the day it last did — a code that set once in February is a
+            // different problem from one that sets every cold morning.
+            Repeater {
+              model: root.car.faults || []
+
+              Rectangle {
+                required property var modelData
+                width: parent.width
+                height: faultCol.implicitHeight + Style.space(20)
+                radius: Style.space(8)
+                color: modelData.active ? root.dim(0.06) : "transparent"
+                border.width: 1
+                border.color: modelData.active
+                  ? Qt.rgba(root.severityColor(modelData.severity).r,
+                            root.severityColor(modelData.severity).g,
+                            root.severityColor(modelData.severity).b, 0.35)
+                  : root.dim(0.10)
+
+                Column {
+                  id: faultCol
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.margins: Style.space(10)
+                  spacing: Style.space(4)
+
+                  Item {
+                    width: parent.width
+                    height: codeText.implicitHeight
+
+                    Text {
+                      id: codeText
+                      text: modelData.code
+                      color: modelData.active ? root.severityColor(modelData.severity)
+                                              : root.dim(0.45)
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: root.fBody
+                      font.weight: Font.DemiBold
+                      font.letterSpacing: 0.8
+                    }
+
+                    Pill {
+                      anchors.verticalCenter: codeText.verticalCenter
+                      label: modelData.status
+                      tint: modelData.active ? root.severityColor(modelData.severity)
+                                             : root.dim(0.4)
                     }
                   }
 
+                  Body {
+                    width: parent.width
+                    text: modelData.descr
+                    wrapMode: Text.WordWrap
+                    color: modelData.active ? root.fg : root.dim(0.55)
+                  }
+
+                  Muted {
+                    width: parent.width
+                    visible: modelData.detail !== undefined && modelData.detail !== ""
+                    text: modelData.detail || ""
+                    wrapMode: Text.WordWrap
+                  }
+
+                  Muted {
+                    width: parent.width
+                    text: {
+                      var bits = []
+                      if (modelData.system) bits.push(modelData.system)
+                      if (modelData.count) bits.push("seen " + modelData.count + "×")
+                      if (modelData.first_seen)
+                        bits.push("first " + root.shortDate(modelData.first_seen))
+                      if (modelData.last_seen)
+                        bits.push("last " + root.shortDate(modelData.last_seen))
+                      return bits.join("   ·   ")
+                    }
+                    color: root.dim(0.4)
+                  }
+
+                  // The freeze frame: what the engine was doing at the instant
+                  // the code set. It is the difference between "the sensor is
+                  // bad" and "the sensor is bad on a cold start".
+                  Muted {
+                    width: parent.width
+                    visible: modelData.freeze !== null && modelData.freeze !== undefined
+                    text: {
+                      var f = modelData.freeze
+                      if (!f) return ""
+                      var bits = []
+                      if (f.rpm !== undefined) bits.push(root.grouped(f.rpm) + " rpm")
+                      if (f.speed !== undefined)
+                        bits.push(Math.round(root.uSpeed(f.speed)) + " " + root.units.speed)
+                      if (f.coolant !== undefined)
+                        bits.push(Math.round(root.uTemp(f.coolant)) + root.units.temp)
+                      if (f.load !== undefined) bits.push(f.load + "% load")
+                      if (f.ltft !== undefined) bits.push("trim +" + f.ltft + "%")
+                      if (f.soc !== undefined) bits.push("IMA " + f.soc + "%")
+                      return bits.length ? "Freeze frame:  " + bits.join("   ") : ""
+                    }
+                    color: root.dim(0.45)
+                  }
+                }
+              }
+            }
+
+            // Not codes — things the sample stream says before the car has
+            // decided to complain about them.
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+              visible: (root.car.watch || []).length > 0
+
+              SectionLabel { text: "NOTICED IN THE DATA" }
+
+              Repeater {
+                model: root.car.watch || []
+
+                Column {
+                  required property var modelData
+                  width: parent.width
+                  spacing: Style.space(2)
+
+                  Row {
+                    spacing: Style.space(7)
+                    Rectangle {
+                      width: Style.space(7); height: width; radius: width / 2
+                      anchors.verticalCenter: parent.verticalCenter
+                      color: root.severityColor(modelData.severity)
+                    }
+                    Body {
+                      text: modelData.title
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Muted {
+                      visible: modelData.seen !== null && modelData.seen !== undefined
+                      text: modelData.seen ? root.shortDate(modelData.seen) : ""
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
+                  }
+
+                  Muted {
+                    width: parent.width
+                    text: modelData.detail || ""
+                    wrapMode: Text.WordWrap
+                    leftPadding: Style.space(14)
+                  }
+                }
+              }
+            }
+          }
+
+          // ================= SERVICE =================
+          Column {
+            width: column.width
+            spacing: Style.space(11)
+            visible: root.tab === "service"
+
+            // The one that is nearest, said plainly — this is the question the
+            // tab exists to answer, and it should not need reading a table.
+            Rectangle {
+              width: parent.width
+              visible: root.svc !== null && root.svc.next !== undefined
+              height: nextCol.implicitHeight + Style.space(22)
+              radius: Style.space(9)
+              color: root.dim(0.06)
+              border.width: 1
+              border.color: Qt.rgba(root.lifeColor(root.svc ? root.svc.next.life : null).r,
+                                    root.lifeColor(root.svc ? root.svc.next.life : null).g,
+                                    root.lifeColor(root.svc ? root.svc.next.life : null).b, 0.38)
+
+              Column {
+                id: nextCol
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.margins: Style.space(12)
+                spacing: Style.space(6)
+
+                SectionLabel { text: "NEXT DUE" }
+
+                Item {
+                  width: parent.width
+                  height: nextName.implicitHeight
+
                   Text {
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: Math.max(0, modelData.life) + "%"
-                    color: root.lifeColor(modelData.life)
+                    id: nextName
+                    text: root.svc ? root.svc.next.item : ""
+                    color: root.fg
                     font.family: root.bar.fontFamily
-                    font.pixelSize: root.fCaption
+                    font.pixelSize: root.fTitle
+                    font.weight: Font.DemiBold
+                  }
+
+                  Text {
+                    anchors.baseline: nextName.baseline
+                    text: root.svc ? Math.max(0, root.svc.next.life) + "%" : ""
+                    color: root.lifeColor(root.svc ? root.svc.next.life : null)
+                    font.family: root.bar.fontFamily
+                    font.pixelSize: root.fTitle
                     font.weight: Font.DemiBold
                   }
                 }
 
                 MiniMeter {
                   width: parent.width
-                  implicitHeight: Style.space(3)
                   foreground: root.fg
-                  value: Math.max(0, modelData.life) / 100
-                  tint: root.lifeColor(modelData.life)
+                  value: root.svc ? Math.max(0, root.svc.next.life) / 100 : 0
+                  tint: root.lifeColor(root.svc ? root.svc.next.life : null)
                 }
 
                 Muted {
                   width: parent.width
-                  color: root.dim(0.4)
-                  elide: Text.ElideRight
+                  wrapMode: Text.WordWrap
                   text: {
-                    var bits = []
-                    if (modelData.km_left !== null && modelData.km_left !== undefined)
-                      bits.push(modelData.km_left < 0
-                        ? "over by " + root.distStr(Math.abs(modelData.km_left))
-                        : root.distStr(modelData.km_left) + " left")
-                    if (modelData.due_on) bits.push("due " + root.isoDate(modelData.due_on))
-                    if (modelData.by) bits.push("by " + modelData.by)
+                    if (!root.svc) return ""
+                    var s = root.svc.next, bits = []
+                    if (s.km_left !== null && s.km_left !== undefined)
+                      bits.push(s.km_left < 0
+                        ? "overdue by " + root.distStr(Math.abs(s.km_left))
+                        : "in " + root.distStr(s.km_left))
+                    if (s.due_on) bits.push("by " + root.isoDate(s.due_on))
+                    if (s.last_on) bits.push("last done " + root.isoDate(s.last_on)
+                      + (s.last_km ? " at " + root.grouped(root.uDist(s.last_km))
+                         + " " + root.units.dist : ""))
                     return bits.join("   ·   ")
                   }
                 }
 
-                Item { width: 1; height: Style.space(4) }
+                Muted {
+                  width: parent.width
+                  visible: root.svc && root.svc.next.note !== ""
+                  text: root.svc ? (root.svc.next.note || "") : ""
+                  color: root.dim(0.4)
+                  wrapMode: Text.WordWrap
+                }
+              }
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(8)
+              visible: root.svc !== null
+
+              Item {
+                width: parent.width
+                height: bookLabel.implicitHeight
+                SectionLabel { id: bookLabel; text: "THE BOOK" }
+                Muted {
+                  text: root.svc
+                    ? (root.svc.due > 0 ? root.svc.due + " due or due soon" : "nothing due")
+                    : ""
+                  color: root.svc && root.svc.due > 0 ? root.cAmber : root.dim(0.45)
+                }
+              }
+
+              Repeater {
+                model: root.svc ? root.svc.items : []
+
+                Column {
+                  required property var modelData
+                  width: parent.width
+                  spacing: Style.space(3)
+
+                  Item {
+                    width: parent.width
+                    height: itemName.implicitHeight
+
+                    Row {
+                      id: itemName
+                      spacing: Style.space(6)
+                      Body {
+                        text: modelData.item
+                        anchors.verticalCenter: parent.verticalCenter
+                      }
+                      // Honda's Maintenance Minder letters and numbers, kept
+                      // because the shop asks for the code, not the name.
+                      Rectangle {
+                        visible: modelData.code !== ""
+                        width: Math.round(root.fMicro * 1.9)
+                        height: width
+                        radius: Style.space(3)
+                        color: root.dim(0.12)
+                        anchors.verticalCenter: parent.verticalCenter
+                        Text {
+                          anchors.centerIn: parent
+                          text: modelData.code
+                          color: root.dim(0.6)
+                          font.family: root.bar.fontFamily
+                          font.pixelSize: root.fMicro
+                          font.weight: Font.DemiBold
+                        }
+                      }
+                    }
+
+                    Text {
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: Math.max(0, modelData.life) + "%"
+                      color: root.lifeColor(modelData.life)
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: root.fCaption
+                      font.weight: Font.DemiBold
+                    }
+                  }
+
+                  MiniMeter {
+                    width: parent.width
+                    implicitHeight: Style.space(3)
+                    foreground: root.fg
+                    value: Math.max(0, modelData.life) / 100
+                    tint: root.lifeColor(modelData.life)
+                  }
+
+                  Muted {
+                    width: parent.width
+                    color: root.dim(0.4)
+                    elide: Text.ElideRight
+                    text: {
+                      var bits = []
+                      if (modelData.km_left !== null && modelData.km_left !== undefined)
+                        bits.push(modelData.km_left < 0
+                          ? "over by " + root.distStr(Math.abs(modelData.km_left))
+                          : root.distStr(modelData.km_left) + " left")
+                      if (modelData.due_on) bits.push("due " + root.isoDate(modelData.due_on))
+                      if (modelData.by) bits.push("by " + modelData.by)
+                      return bits.join("   ·   ")
+                    }
+                  }
+
+                  Item { width: 1; height: Style.space(4) }
+                }
               }
             }
           }
-        }
 
-        PanelSeparator { foreground: root.fg }
+          PanelSeparator { foreground: root.fg }
 
-        // ---- footer ----
-        Item {
-          width: column.width
-          height: footRow.implicitHeight
+          // ---- footer ----
+          Item {
+            width: column.width
+            height: footRow.implicitHeight
 
-          Row {
-            id: footRow
-            anchors.left: parent.left
-            spacing: Style.space(8)
+            Row {
+              id: footRow
+              spacing: Style.space(8)
 
-            TextButton {
-              label: "Open cluster"
-              onPressed: { root.openCluster(); root.close() }
+              TextButton {
+                label: "Open cluster"
+                onPressed: { root.openCluster(); root.close() }
+              }
+
+              TextButton {
+                label: "Refresh"
+                onPressed: root.refreshNow()
+              }
             }
 
-            TextButton {
-              label: "Refresh"
-              onPressed: root.refreshNow()
+            Muted {
+              anchors.verticalCenter: footRow.verticalCenter
+              color: root.dim(0.35)
+              text: root.car.checked
+                ? "updated " + root.since(root.nowSec - root.car.checked) : ""
             }
-          }
-
-          Muted {
-            anchors.right: parent.right
-            anchors.verticalCenter: footRow.verticalCenter
-            color: root.dim(0.35)
-            text: root.car.checked
-              ? "updated " + root.since(root.nowSec - root.car.checked) : ""
           }
         }
       }
