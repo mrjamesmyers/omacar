@@ -116,7 +116,13 @@ def clear_codes(el, headers=None, on_step=None):
 def load_resets():
     """Bundled definitions, overlaid with anything the user has added."""
     out = {}
-    for path in (BUNDLED, DEFS):
+    paths = [BUNDLED, DEFS]
+    try:
+        import plugins
+        paths[1:1] = plugins.data_files("resets")
+    except Exception:                                         # noqa: BLE001
+        pass
+    for path in paths:
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
@@ -145,7 +151,13 @@ def load_procedures(make=None):
     sequences are not make-specific.
     """
     out = []
-    for path in (PROCEDURES, USER_PROCEDURES):
+    paths = [PROCEDURES, USER_PROCEDURES]
+    try:
+        import plugins
+        paths[1:1] = plugins.data_files("procedures")
+    except Exception:                                         # noqa: BLE001
+        pass
+    for path in paths:
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)

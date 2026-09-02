@@ -232,7 +232,7 @@ being a different category of thing.*
   a technician under a car with a torque wrench in each hand should be able to
   change the live data page
 - **Automation** — OmaCar is a CLI first. Anything here scripts, and pipes
-- **A real plugin API** so third parties extend it without forking
+- **A real plugin API** so third parties extend it without forking — **DONE**, see doc/PLUGINS.md
 - **Local-first LLM** so guided diagnosis works in a rural garage with no signal
 
 ---

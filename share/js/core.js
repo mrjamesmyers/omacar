@@ -246,6 +246,7 @@ export const api = {
   procedures: () => req("/api/procedures"),
   documents: (kind) => req("/api/documents" + (kind ? "?kind=" + kind : "")),
   serviceHistory: () => req("/api/service-history"),
+  plugins: () => req("/api/plugins"),
   // No timeout wrapper: a parse OCRs a page and then asks the advisor.
   document: (body) => req("/api/document", { method: "POST", body: JSON.stringify(body) }),
   runReset: (id, header) => req("/api/reset", { method: "POST", body: JSON.stringify({ id, header }) }),

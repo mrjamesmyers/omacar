@@ -1,0 +1,7 @@
+{
+  "name": "Fuel log",
+  "description": "Records every fill-up and works out real-world economy",
+  "version": "0.1.0",
+  "author": "example",
+  "command": "fuel"
+}

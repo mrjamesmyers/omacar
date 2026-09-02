@@ -543,6 +543,10 @@ def handle_get(path, query):
             subject=qstr(query, "subject"), subject_id=qstr(query, "id"))}
     if path == "/api/vehicles":
         return 200, {"vehicles": garage.vehicles(), "current": garage.current()}
+    if path == "/api/plugins":
+        import plugins
+        return 200, {"plugins": plugins.discover(), "views": plugins.views(),
+                     "hooks": plugins.HOOKS}
     if path == "/api/service-history":
         import history
         return 200, {"timeline": history.timeline(), "items": history.book_items()}

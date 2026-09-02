@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Runs when a new fault appears. The event arrives as JSON on stdin.
+payload=$(cat)
+echo "$(date -Is) $payload" >> "$OMACAR_STATE/fuel-log-saw-a-fault.log"

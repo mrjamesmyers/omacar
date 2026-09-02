@@ -187,6 +187,19 @@ class Handler(SimpleHTTPRequestHandler):
             if db:
                 db.close()
             return
+        if path.startswith("/plugin/"):
+            # A plugin's own view module. Resolved through plugins.view_path,
+            # which refuses anything outside that plugin's directory and
+            # anything that is not a .js file.
+            import plugins
+            parts = path[len("/plugin/"):].split("/", 1)
+            real = plugins.view_path(parts[0], parts[1] if len(parts) > 1 else "")
+            if real is None:
+                return self._json({"error": "no such plugin view"}, 404)
+            with open(real, "rb") as f:
+                body = f.read()
+            self._send(body, "text/javascript; charset=utf-8")
+            return
         if path.startswith("/doc/"):
             # Served through docs.path_of, which refuses anything climbing out
             # of the folder. Same rule as /photo/, for the same reason.

@@ -414,6 +414,28 @@ async function boot() {
   await Promise.all([store.boot(), applyTheme(), loadAuto()]);
   document.getElementById("btn-units").textContent = U.units.dist;
   document.getElementById("app").dataset.booting = "0";
+  // Plugin screens, loaded at boot.
+  //
+  // Dynamically imported rather than bundled, because there is no bundler and
+  // a plugin is a directory somebody dropped in. Each one is loaded on its own
+  // and a failure is contained: a plugin that throws on import loses its own
+  // screen and nothing else, which is the difference between a broken plugin
+  // and a broken application.
+  try {
+    const r = await api.plugins();
+    for (const v of r.views || []) {
+      try {
+        const mod = await import(v.src);
+        if (typeof mod.default !== "function") continue;
+        VIEWS.push({ id: v.id, label: v.label, title: v.title,
+                     mount: mod.default, plugin: true });
+      } catch (e) {
+        console.warn("plugin view failed to load:", v.id, e);
+      }
+    }
+    if ((r.views || []).length) paintRail();
+  } catch { /* no plugins, or the endpoint is unavailable */ }
+
   paintBar();
   go();
 

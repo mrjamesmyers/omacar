@@ -15,6 +15,7 @@
 #   omacar profile [cmd]      list, show, check, merge, promote, refute, correlate
 #   omacar candlog            log candidate PIDs against trusted channels
 #   omacar discover [status]  map identifiers automatically, safely, over time
+#   omacar plugins            what extends this install, and what each provides
 #   omacar write arm|disarm   allow writes (clear codes, tests, settings)
 #   omacar daemon start|stop|status
 #                             the polling daemon that feeds the cluster
@@ -481,6 +482,7 @@ case "${1:-open}" in
   dtclog) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/dtclog.py" "$@" ;;
   candlog) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/candlog.py" "$@" ;;
   discover) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/autodisc.py" "$@" ;;
+  plugins) shift; exec "$OMACAR_PY" "$ROOT/lib/plugins.py" "$@" ;;
   learn) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/discover.py" "$@" ;;
   write) shift; exec "$OMACAR_PY" "$ROOT/lib/write.py" "$@" ;;
   profile) omacar_need_env; shift; exec "$OMACAR_PY" "$ROOT/lib/profilecli.py" "$@" ;;
@@ -564,5 +566,22 @@ print()
   state) state ;;
   server) case "${2:-status}" in stop) server_stop ;; *) server_status ;; esac ;;
   help | --help | -h) usage ;;
-  *) echo "omacar: unknown command '$1' (try: omacar help)" >&2; exit 1 ;;
+  # A plugin may claim an unknown name. Checked LAST, so no plugin can shadow
+  # a built-in command -- somebody else's directory must never be able to
+  # redefine what `omacar scan` does.
+  *)
+    # Capture the status explicitly. After `if cmd; then ...; fi` with a
+    # failing condition and no else branch, bash sets $? to 0 rather than to
+    # cmd's status -- so the previous version swallowed every unknown command
+    # and exited 0 with no message.
+    set +e
+    "$OMACAR_PY" "$ROOT/lib/plugins.py" --dispatch "$@"
+    status=$?
+    set -e
+    if [[ $status -eq 0 ]]; then exit 0; fi
+    if [[ $status -eq 127 ]]; then
+      echo "omacar: unknown command '$1' (try: omacar help)" >&2
+      exit 1
+    fi
+    exit $status ;;
 esac

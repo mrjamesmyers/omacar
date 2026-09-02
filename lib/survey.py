@@ -159,8 +159,14 @@ def read_codes(conn, obd, db, now):
 
     known = {r[0]: r for r in db.execute(
         "SELECT code, first_seen, count, status FROM faults")}
+    fresh = []
     for code, f in found.items():
         prev = known.get(code)
+        if not prev:
+            fresh.append({"code": code, "status": f["status"],
+                          "description": f["descr"],
+                          "system": system_for(code),
+                          "severity": severity_for(code)})
         db.execute(
             "INSERT INTO faults (code, system, descr, detail, first_seen, "
             "last_seen, count, status, severity, freeze) "
@@ -178,6 +184,19 @@ def read_codes(conn, obd, db, now):
         if code not in found and prev[3] in ("stored", "pending"):
             db.execute("UPDATE faults SET status='cleared', last_seen=? "
                        "WHERE code=?", (now, code))
+
+    # Tell any plugin that a fault it has not seen before has appeared.
+    #
+    # After the writes, never before: a hook that fires and then the insert
+    # fails would have announced something that did not happen. And wrapped,
+    # because this runs inside the survey that feeds the gauge -- a plugin
+    # must not be able to take that down.
+    if fresh:
+        try:
+            import plugins
+            plugins.fire("on-fault", {"faults": fresh, "at": now})
+        except Exception:                                     # noqa: BLE001
+            pass
     return len(found)
 
 
