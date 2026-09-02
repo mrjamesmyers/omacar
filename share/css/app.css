@@ -1004,3 +1004,22 @@ ul.tight li { margin-bottom: 5px; }
 .rp-v { font-family: var(--mono); font-size: 1.3rem; color: var(--ink); font-variant-numeric: tabular-nums; }
 .rp-u { font-size: .72rem; color: var(--dim); }
 .btn.sm.on { border-color: var(--info); color: var(--info); }
+.privacy-pill { border: 0; font: inherit; cursor: pointer; }
+.rail-btn.on { background: var(--info-bg); color: var(--info); border-color: rgba(79,168,232,.42); }
+
+/* ---- document library ---- */
+.docs { display: grid; gap: 14px; }
+.doc-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.doc-fields {
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hair);
+  display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.doc-field { display: flex; align-items: center; gap: 8px; }
+.doc-k { flex: none; width: 68px; font-size: .8rem; color: var(--dim); }
+.doc-field .input { flex: 1; min-width: 0; }
+.doc-ex { margin-top: 12px; border: 1px solid var(--edge); border-radius: var(--r);
+          background: var(--raise); }
+.doc-ex > summary { cursor: pointer; padding: 9px 12px; font-size: .9rem; color: var(--dim); }
+.doc-ex-body { padding: 0 12px 12px; }
+.doc-ex-body .lede.warn { color: var(--warn); }

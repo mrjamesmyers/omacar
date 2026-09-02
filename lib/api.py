@@ -7,6 +7,8 @@ what the car said.
     GET  /api/snapshot          the whole car in one read
     GET  /api/live              the current sample
     GET  /api/history           samples over a span, decimated to fit a graph
+    GET  /api/documents         the document library for this vehicle
+    POST /api/document          add, update, remove or parse one
     GET  /api/trips             drives, newest first, for replay
     GET  /api/records           saved scans, recordings and advisor answers
     GET  /api/ai                poll an advisor job
@@ -540,6 +542,10 @@ def handle_get(path, query):
             subject=qstr(query, "subject"), subject_id=qstr(query, "id"))}
     if path == "/api/vehicles":
         return 200, {"vehicles": garage.vehicles(), "current": garage.current()}
+    if path == "/api/documents":
+        import docs
+        return 200, {"documents": docs.listing(qstr(query, "kind") or None),
+                     "kinds": docs.KINDS, "totals": docs.totals()}
     if path == "/api/procedures":
         # Owner procedures need no adapter, no arming and no car present --
         # they are instructions, not requests. So this endpoint deliberately
@@ -671,6 +677,40 @@ def handle_post(path, body):
         except Exception:                                         # noqa: BLE001
             pass
         return 200, {"sent": result, "accepted": accepted, "local": local}
+    if path == "/api/document":
+        import docs
+        act = data.get("action") or "add"
+        try:
+            if act == "remove":
+                return 200, {"removed": docs.remove(data.get("id"))}
+            if act == "update":
+                return 200, {"ok": docs.update(data.get("id"), **{
+                    k: data.get(k) for k in
+                    ("kind", "title", "vendor", "doc_date", "amount",
+                     "odometer", "note", "tags") if k in data})}
+            if act == "parse":
+                got, err = docs.parse(data.get("id"))
+                if err:
+                    return 409, {"error": err}
+                return 200, {"extracted": got, "document": docs.get(data.get("id"))}
+            # add: the file arrives as a data URL, same as photographs.
+            raw = data.get("file") or ""
+            if "," in raw and raw.startswith("data:"):
+                import base64
+                raw = base64.b64decode(raw.split(",", 1)[1])
+            else:
+                return 400, {"error": "a file is required"}
+            return 200, docs.add(
+                raw, kind=data.get("kind") or "other",
+                title=data.get("title") or "", vendor=data.get("vendor") or "",
+                doc_date=data.get("doc_date") or "",
+                amount=data.get("amount"), odometer=data.get("odometer"),
+                note=data.get("note") or "", tags=data.get("tags"),
+                filename=data.get("filename") or "")
+        except ValueError as e:
+            return 400, {"error": str(e)}
+        except Exception as e:                                # noqa: BLE001
+            return 500, {"error": f"{type(e).__name__}: {e}"}
     if path == "/api/reset":
         import connect
         import ops

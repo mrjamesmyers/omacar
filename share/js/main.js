@@ -11,8 +11,10 @@ import { h, clear, icon, store, U, api, toast, dist, grouped, since } from "./co
 import { ICONS } from "./icons.js";
 import { learn } from "./learn.js";
 import { savedLook, applyLook } from "./looks.js";
+import { privacy, vin as maskVin, odo as maskOdo } from "./privacy.js";
 import { onboard, showOnboarding } from "./onboard.js";
 import hub from "./views/hub.js";
+import documentsView from "./views/documents.js";
 import replayView from "./views/replay.js";
 import resetsView from "./views/resets.js";
 import learnView from "./views/learnview.js";
@@ -48,6 +50,7 @@ const VIEWS = [
   { id: "resets", label: "Resets", title: "Service resets and functional tests", mount: resetsView },
   { id: "history", label: "Log", title: "Drive history and records", mount: history },
   { id: "replay", label: "Replay", title: "Replay a recorded drive", mount: replayView },
+  { id: "documents", label: "Docs", title: "Receipts, registrations and records", mount: documentsView },
   { id: "garage", label: "Garage", title: "Every car you own", mount: garageView },
   { id: "learn", label: "Learn", title: "Learn the car, and the app", mount: learnView },
   { id: "report", label: "Report", title: "Vehicle report", mount: report },
@@ -206,9 +209,18 @@ function paintBar() {
   bar.appendChild(h("div.id",
     h("div.name", car.name || "Unknown vehicle"),
     h("div.sub", [car.vehicle && car.vehicle.trim, car.vehicle && car.vehicle.engine,
-                  car.vehicle && car.vehicle.vin].filter(Boolean).join("  ·  "))));
+                  maskVin(car.vehicle && car.vehicle.vin)].filter(Boolean).join("  ·  "))));
 
   bar.appendChild(h("div.spacer"));
+
+  // Visible, not subtle. The failure that matters is thinking you are private
+  // when you are not, and this is the one place always in frame.
+  if (privacy.on) {
+    bar.appendChild(h("button.pill.info.privacy-pill", {
+      title: "Identifying details are hidden. Click to show them again.",
+      onclick: () => { privacy.on = false; paintBar(); go(); },
+    }, "VIN hidden"));
+  }
 
   if (car.simulated) bar.appendChild(h("span.pill.info", "simulated car"));
 
@@ -344,6 +356,22 @@ async function boot() {
   // goes home is the one navigation convention every user already has.
   const hubBtn = document.getElementById("btn-hub");
   if (hubBtn) hubBtn.addEventListener("click", () => { location.hash = "#hub"; });
+
+  const privBtn = document.getElementById("btn-privacy");
+  const paintPriv = () => {
+    privBtn.setAttribute("aria-pressed", privacy.on ? "true" : "false");
+    privBtn.classList.toggle("on", privacy.on);
+    privBtn.textContent = privacy.on ? "◉" : "◎";
+  };
+  privBtn.addEventListener("click", () => {
+    const now = privacy.toggle();
+    paintPriv();
+    paintBar();
+    go();
+    toast(now ? "VIN, plate and name hidden — safe to photograph."
+              : "Identifying details visible again.");
+  });
+  paintPriv();
 
   const learnBtn = document.getElementById("btn-learn");
   const paintLearn = () => {

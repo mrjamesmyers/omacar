@@ -187,6 +187,29 @@ class Handler(SimpleHTTPRequestHandler):
             if db:
                 db.close()
             return
+        if path.startswith("/doc/"):
+            # Served through docs.path_of, which refuses anything climbing out
+            # of the folder. Same rule as /photo/, for the same reason.
+            import docs
+            real = docs.path_of(path[len("/doc/"):])
+            if real is None:
+                return self._json({"error": "no such document"}, 404)
+            import mimetypes
+            ctype = mimetypes.guess_type(real)[0] or "application/octet-stream"
+            with open(real, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            # A stored PDF or image is shown, not executed. CSP because these
+            # are files somebody else's phone produced.
+            self.send_header("Content-Security-Policy",
+                             "default-src 'none'; img-src 'self'; object-src 'self'")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path.startswith("/photo/"):
             # Resolved through photos.path_of, which refuses anything that
             # climbs out of the folder. Never join a request path directly.

@@ -98,6 +98,18 @@ export const TOPICS = {
         + "warning lights. And the firmware-flashing services are absent from the "
         + "code entirely — not disabled, absent — so no bug can reach them.",
   },
+  documents: {
+    title: "Why the paperwork lives here",
+    body: "A car's history is not only what its computers remember. The oil "
+        + "change receipt, the registration, the inspection certificate and the "
+        + "citation are what a buyer asks for and what a warranty claim needs — "
+        + "and they are what gets lost. Filed against the same vehicle record "
+        + "as the drives and the fault codes, a folder of receipts becomes a "
+        + "history you can search and hand over. The advisor can read a "
+        + "photograph of a receipt and fill in the date, vendor, total and "
+        + "odometer, but what it reads is always shown as extracted and never "
+        + "replaces anything you typed.",
+  },
   replay: {
     title: "Why replay matters more than live data",
     body: "An intermittent fault is, by definition, not happening while you "

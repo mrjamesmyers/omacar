@@ -151,6 +151,21 @@ a static database — it can reason over *this* car's actual live data.
 
 **1.5 Reports.** A PDF a mechanic or a buyer will take seriously.
 
+**1.6 The document library. — DONE.** A car's history is not only what its
+computers remember: it is the oil change receipt, the registration, the
+inspection certificate, the citation. Filed against the same per-VIN record as
+the drives and the faults, so selling a car hands over its paperwork with it.
+The advisor reads a photograph — OCR, then extraction — and fills in date,
+vendor, total, odometer and what was actually done. Everything extracted is
+labelled as extracted and never overwrites a field somebody typed, because OCR
+of a crumpled receipt is a guess and the scan is not.
+
+**1.7 Privacy mode. — DONE.** The VIN is on screen constantly by design, so
+nobody works on the wrong car. That is right in a workshop and wrong in a
+photograph posted to a forum. One toggle masks the VIN, plate and driver name,
+with a visible indicator — the failure that matters is believing you are
+private when you are not.
+
 ## Phase 2 — Coverage, the actual moat
 
 *The hard problem. Everything here is in service of it.*

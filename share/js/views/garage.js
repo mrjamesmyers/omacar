@@ -18,6 +18,7 @@
 
 import { h, store, api, since, toast } from "../core.js";
 import { explain } from "../learn.js";
+import { vin as maskVin, plate as maskPlate, person } from "../privacy.js";
 
 const FIELDS = [
   ["driver", "Driver", "who normally drives it"],
@@ -67,15 +68,15 @@ export default function garage(root) {
 
   function title(car) {
     // Driver first, deliberately. See the note at the top of this file.
-    const what = car.name || car.vin || car.key;
-    return car.driver ? `${car.driver} — ${what}` : what;
+    const what = car.name || maskVin(car.vin) || car.key;
+    return car.driver ? `${person(car.driver)} — ${what}` : what;
   }
 
   function card(car) {
     const open = editing === car.key;
     const bits = [];
-    if (car.vin) bits.push(h("span.mono", car.vin));
-    if (car.plate) bits.push(h("span", car.plate));
+    if (car.vin) bits.push(h("span.mono", maskVin(car.vin)));
+    if (car.plate) bits.push(h("span", maskPlate(car.plate)));
     bits.push(h("span", car.last_seen ? "seen " + since(car.last_seen) : "never connected"));
     if (car.simulated) bits.push(h("span.warn", "simulated"));
 

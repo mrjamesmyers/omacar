@@ -244,6 +244,9 @@ export const api = {
   clear: (module, headers) => req("/api/clear", { method: "POST", body: JSON.stringify({ module, headers }) }),
   resets: () => req("/api/resets"),
   procedures: () => req("/api/procedures"),
+  documents: (kind) => req("/api/documents" + (kind ? "?kind=" + kind : "")),
+  // No timeout wrapper: a parse OCRs a page and then asks the advisor.
+  document: (body) => req("/api/document", { method: "POST", body: JSON.stringify(body) }),
   runReset: (id, header) => req("/api/reset", { method: "POST", body: JSON.stringify({ id, header }) }),
   saveRecording: (label, from, to) =>
     req("/api/record", { method: "POST", body: JSON.stringify({ label, from, to }) }),

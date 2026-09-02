@@ -14,6 +14,7 @@
 
 import { h, clear, store, api, dist, fullDate, toast, sevTone, confirmDialog, since } from "../core.js";
 import { explain } from "../learn.js";
+import { vin as maskVin } from "../privacy.js";
 
 // WAS 190ms PER MODULE OF PURE ANIMATION.
 //
@@ -164,7 +165,7 @@ function renderReport(r) {
           t.codes ? `${t.codes} code${t.codes > 1 ? "s" : ""} in ${t.with_codes} of ${t.modules} modules`
                   : `All ${t.modules} modules clean`),
         h("p.muted", { style: { marginTop: "4px" } },
-          `${r.vehicle}  ·  ${r.vin || "no VIN"}  ·  ${dist(r.odometer)}  ·  ${fullDate(r.at)}`)),
+          `${r.vehicle}  ·  ${maskVin(r.vin) || "no VIN"}  ·  ${dist(r.odometer)}  ·  ${fullDate(r.at)}`)),
       h("div.right.row.wrapline",
         h("span.pill" + (r.readiness.ready ? ".ok" : ".warn"),
           r.readiness.ready ? "emissions ready" : `${r.readiness.incomplete} monitors incomplete`),
