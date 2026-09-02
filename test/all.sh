@@ -16,8 +16,18 @@ else
   echo "  (skipping prospector tests — run: omacar setup)"
 fi
 
-# The workshop's own logic — units, the service countdown, Mode 06 verdicts
-# and the advisor's evidence check. Pure stdlib, so no venv needed.
-python3 "$ROOT/test/workshop_test.py" || fails=$((fails + 1))
+# The workshop's own logic — units, the service countdown, Mode 06 verdicts,
+# the advisor's evidence check, the theme derivation and the drive-mode gauges.
+#
+# Stdlib only, so system python runs nearly all of it. The venv is PREFERRED
+# rather than required: a handful of checks import modules that reach pyserial
+# (dtclog is one), and under system python those skip themselves with a note.
+# They were silently skipping in every run until this line preferred the venv,
+# which is a guard that exists and never fires -- the worst kind.
+if [[ -x "$VENV/bin/python" ]]; then
+  "$VENV/bin/python" "$ROOT/test/workshop_test.py" || fails=$((fails + 1))
+else
+  python3 "$ROOT/test/workshop_test.py" || fails=$((fails + 1))
+fi
 
 exit $((fails > 0))

@@ -1073,6 +1073,58 @@ ok("a non-string tile id is dropped", 7 not in _saved)
 ok("the good ones survive", _saved == {"speed": "dial", "rpm": "arc"})
 
 
+head("The logger that waits")
+
+# Unplug the adapter at the end of a leg and this used to append
+# {"skipped": "no adapter"} once per interval for as long as the laptop stayed
+# on -- an unbounded file of a car saying nothing, and no way to see at a
+# glance where the driving actually stopped. Exiting instead would be worse: a
+# journey is legs with meals between them, and a logger that gave up during
+# lunch would have to be remembered and restarted before leg two.
+#
+# So it waits, quietly, and pays MORE attention while it waits -- plugging in
+# at the start of leg two should start logging in seconds, not up to five
+# minutes later.
+try:
+    import dtclog  # noqa: E402
+    import connect as connect_mod  # noqa: E402
+except Exception as _e:                                   # noqa: BLE001
+    print(f"   --    dtclog needs the venv ({_e}); skipped")
+else:
+    _log = os.path.join(tmp, "drive.jsonl")
+    _seen = {"polls": 0, "sleeps": 0, "last": None}
+    _real_resolve, _real_sleep = connect_mod.resolve, dtclog.time.sleep
+
+    def _no_adapter():
+        _seen["polls"] += 1
+        return (None, None)
+
+    def _fake_sleep(sec):
+        _seen["sleeps"] += 1
+        _seen["last"] = sec
+        # Twenty passes is well past the point the old code would have written
+        # twenty lines.
+        if _seen["sleeps"] >= 20:
+            raise SystemExit
+
+    connect_mod.resolve = _no_adapter
+    dtclog.time.sleep = _fake_sleep
+    try:
+        dtclog.run(300.0, ["18DA03F1"], _log, verbose=False)
+    except SystemExit:
+        pass
+    finally:
+        connect_mod.resolve, dtclog.time.sleep = _real_resolve, _real_sleep
+
+    _lines = [x for x in open(_log).read().splitlines() if x.strip()]
+    ok("it kept looking for the adapter", _seen["polls"] >= 20)
+    ok("twenty passes of waiting write ONE line, not twenty", len(_lines) == 1)
+    ok("and that line says what it is waiting for",
+       json.loads(_lines[0]).get("skipped") == "no adapter")
+    ok("while waiting it polls far faster than the sample interval",
+       _seen["last"] is not None and _seen["last"] <= dtclog.IDLE_POLL < 300.0)
+    ok("but it does not give up and exit", _seen["sleeps"] >= 20)
+
 head("The hub")
 
 # The hub used to rebuild its entire DOM -- title, vitals, the radio transport,
