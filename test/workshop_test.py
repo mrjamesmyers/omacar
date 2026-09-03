@@ -1130,6 +1130,29 @@ for _v in ("OMACAR_STATE", "SIM_PID", "DAEMON_PID", "WATCH_PID"):
        f'{_v}="$OMACAR_STATE' in _demo_env or f'{_v}="$XDG_STATE_HOME' in _demo_env)
 ok("trashing refuses anything that is not the demo directory",
    "*/omacar-demo)" in _cli and "refusing to delete" in _cli)
+# The rollup the bar widget reads is state, so it must move with the demo too.
+# It was the last hardcoded path, and a demo would have written it over yours.
+ok("the panel rollup follows XDG_STATE_HOME",
+   "liquid-glass-car.json" in _cli
+   and "os.path.expanduser('~/.local/state/omarchy" not in _cli)
+
+# THE BAR WIDGET, WHICH CANNOT BE GIVEN AN ENVIRONMENT.
+#
+# It is QML inside omarchy-shell, so it is pointed rather than moved: a marker
+# file switches which tree it reads. The rule that matters is that a demo can
+# never stand between you and a car that is actually plugged in.
+_panelsrc = (_root / "plugin" / "Panel.qml").read_text(encoding="utf-8")
+ok("the panel reads the real live.json whatever it is showing",
+   'readonly property string liveFile: home + "/.local/state/omacar/live.json"' in _panelsrc)
+ok("a real, answering car overrides the demo",
+   re.search(r"readonly property bool demoing: root\.demoMarker && !root\.realLive",
+             _panelsrc) is not None)
+ok("and it says DEMO when it is showing one",
+   'label: root.demoing ? "DEMO" : ""' in _panelsrc)
+ok("one button moves both surfaces together",
+   "function toggleDemo" in _panelsrc and "omacar demo start" in _panelsrc)
+ok("the browser app badges a simulated car too",
+   "DEMO · not your car" in (_share / "js" / "main.js").read_text(encoding="utf-8"))
 
 head("The logger that waits")
 

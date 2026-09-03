@@ -153,6 +153,9 @@ button { font: inherit; color: inherit; }
 .vbar .sub { font-size: .68rem; color: var(--faint); white-space: nowrap;
              overflow: hidden; text-overflow: ellipsis; }
 .vbar .spacer { margin-left: auto; }
+/* The demo badge earns a border as well as a colour: a pill among pills is
+   easy to stop seeing, and this is the one that must not be. */
+.demo-pill { border: 1px solid var(--warn); font-weight: 600; letter-spacing: .04em; }
 .vbar .stat { display: flex; align-items: center; gap: 7px; font-size: .7rem; color: var(--dim); }
 .vbar .odo { font-size: .82rem; color: var(--ink); font-variant-numeric: tabular-nums; }
 

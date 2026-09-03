@@ -246,7 +246,10 @@ function paintBar() {
     }, "VIN hidden"));
   }
 
-  if (car.simulated) bar.appendChild(h("span.pill.info", "simulated car"));
+  // Amber and explicit, not a quiet blue "simulated". This bar is the one
+  // thing always on screen, and the failure that matters is reading invented
+  // numbers as your own car's -- the same reason the bar widget wears a stripe.
+  if (car.simulated) bar.appendChild(h("span.pill.warn.demo-pill", "DEMO · not your car"));
 
   if (car.odometer) {
     bar.appendChild(h("div.stat",

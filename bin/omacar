@@ -163,6 +163,32 @@ demo_start() {
     local i
     for i in $(seq 1 40); do sleep 0.2; sim_pid >/dev/null && break; done
   fi
+  # The rollup the bar widget reads, built inside the demo's own state.
+  "$OMACAR_PY" -c "
+import sys, os, json, tempfile
+sys.path.insert(0, '$ROOT/lib')
+import records
+out = os.path.join(os.path.expanduser(
+    os.environ.get('XDG_STATE_HOME', '~/.local/state')), 'omarchy',
+    'liquid-glass-car.json')
+os.makedirs(os.path.dirname(out), exist_ok=True)
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(out), suffix='.tmp')
+with os.fdopen(fd, 'w', encoding='utf-8') as f:
+    json.dump(records.snapshot(), f)
+os.replace(tmp, out)
+" 2>/dev/null || true
+
+  # THE MARKER THE BAR WIDGET WATCHES.
+  #
+  # The panel is QML running inside omarchy-shell, which has the desktop's
+  # environment and not ours -- there is no way to hand it XDG_STATE_HOME
+  # without restarting the whole shell with it, which would redirect every
+  # other plugin too. So instead of moving the panel's world, the panel is
+  # told where to look: while this file exists it reads the demo's files and
+  # wears a DEMO badge, and the moment it is gone it is back on your car. No
+  # restart either way, and not one real file is written at any point.
+  : > "$DEMO_ROOT/ACTIVE"
+
   if [[ -z "$(demo_server_pid)" ]]; then
     setsid -f "$OMACAR_PY" "$ROOT/lib/serve.py" "$DEMO_PORT" "$ROOT/share" \
       >"$OMACAR_STATE/serve.log" 2>&1
@@ -187,6 +213,8 @@ demo_stop() {
   if pid=$(sim_pid); then kill "$pid" 2>/dev/null && n=$((n + 1)); fi
   pid=$(demo_server_pid)
   [[ -n "$pid" ]] && kill "$pid" 2>/dev/null && n=$((n + 1))
+  # The bar widget is back on your car within a second of this.
+  rm -f "$DEMO_ROOT/ACTIVE"
   echo "  stopped $n demo process(es); its data is still in $DEMO_ROOT"
 }
 
@@ -632,7 +660,9 @@ case "${1:-open}" in
 import sys, os, json, tempfile
 sys.path.insert(0, '$ROOT/lib')
 import records
-out = os.path.expanduser('~/.local/state/omarchy/liquid-glass-car.json')
+out = os.path.join(os.path.expanduser(
+    os.environ.get('XDG_STATE_HOME', '~/.local/state')), 'omarchy',
+    'liquid-glass-car.json')
 os.makedirs(os.path.dirname(out), exist_ok=True)
 snap = records.snapshot()
 fd, tmp = tempfile.mkstemp(dir=os.path.dirname(out), suffix='.tmp')
@@ -708,6 +738,9 @@ print()
   demo)
     case "${2:-status}" in
       start) demo_start ;;
+      # How the bar widget refreshes while the demo is on. It cannot set the
+      # environment itself, so it asks us to do it.
+      cache) demo_env; exec "$0" panel-cache --quiet ;;
       stop) demo_stop ;;
       trash) demo_trash ;;
       *) demo_status ;;

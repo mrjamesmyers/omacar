@@ -35,10 +35,35 @@ Panel {
   implicitHeight: button.implicitHeight
 
   readonly property string home: Quickshell.env("HOME")
-  readonly property string cache: home + "/.local/state/omarchy/liquid-glass-car.json"
+
+  // DEMO MODE, AND WHY THE REAL CAR STILL WINS.
+  //
+  // `omacar demo start` gives itself a whole separate state and config tree by
+  // redirecting XDG_STATE_HOME and XDG_CONFIG_HOME. This panel cannot be given
+  // those: it is QML inside omarchy-shell, which has the desktop's environment,
+  // and the only way to change it would be restarting the shell -- redirecting
+  // every other plugin along with it.
+  //
+  // So the panel is not moved, it is POINTED. While the marker file exists it
+  // reads the demo's files and wears a DEMO badge; the moment it is gone it is
+  // back on your car, with no restart either way and not one real file written.
+  //
+  // And the demo never wins over a car that is actually there. The real
+  // live.json is read on every tick regardless, and the instant the adapter is
+  // plugged in and answering, the bar shows YOUR car -- because the one thing a
+  // demo must never do is stand between you and the vehicle in front of you.
+  readonly property string demoState: home + "/.local/state/omacar-demo/state"
+  readonly property string demoMarkerFile: home + "/.local/state/omacar-demo/ACTIVE"
+  property bool demoMarker: false
+  readonly property bool demoing: root.demoMarker && !root.realLive
+
+  readonly property string stateRoot: root.demoing ? demoState : home + "/.local/state"
+  readonly property string cache: stateRoot + "/omarchy/liquid-glass-car.json"
+  // ALWAYS the real one. This is how the panel knows to come back.
   readonly property string liveFile: home + "/.local/state/omacar/live.json"
-  readonly property string alertFile: home + "/.local/state/omacar/alerts.json"
-  readonly property string dismissFile: home + "/.local/state/omacar/dismissed.json"
+  readonly property string demoLiveFile: demoState + "/omacar/live.json"
+  readonly property string alertFile: stateRoot + "/omacar/alerts.json"
+  readonly property string dismissFile: stateRoot + "/omacar/dismissed.json"
 
   // Omarchy's caption token is 10px and its body 12px, sized for a bar where a
   // label is glanced at. This panel is read, so everything scales off those
@@ -93,7 +118,13 @@ Panel {
 
   // ---- state ---------------------------------------------------------------
   property var car: ({})
-  property var sample: ({})
+  // What the real adapter last said, whatever the panel is currently showing.
+  property var realSample: ({})
+  property var demoSample: ({})
+  readonly property var sample: root.demoing ? root.demoSample : root.realSample
+  readonly property bool realLive: (realSample.t || 0) > 0
+    && (root.nowSec - realSample.t) <= root.liveStale
+    && (realSample.connected === true || realSample.status === "yielded")
   // What the watchdog has raised. Read from its own small file rather than the
   // rollup cache, because an alert has to reach the bar the moment it happens
   // and the rollup runs on a slow timer.
@@ -558,7 +589,26 @@ Panel {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        try { root.sample = JSON.parse(text) } catch (e) { root.sample = ({}) }
+        try { root.realSample = JSON.parse(text) } catch (e) { root.realSample = ({}) }
+      }
+    }
+  }
+
+  // The demo marker and the demo's sample in one pass: two files, one process,
+  // on the same tick as everything else.
+  Process {
+    id: loadDemo
+    command: ["bash", "-c",
+      "if [ -f \"$1\" ]; then echo 1; cat \"$2\" 2>/dev/null || echo '{}';"
+      + " else echo 0; echo '{}'; fi",
+      "x", root.demoMarkerFile, root.demoLiveFile]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var nl = text.indexOf("\n")
+        root.demoMarker = text.slice(0, nl < 0 ? text.length : nl).trim() === "1"
+        try { root.demoSample = JSON.parse(text.slice(nl + 1)) }
+        catch (e) { root.demoSample = ({}) }
       }
     }
   }
@@ -582,6 +632,7 @@ Panel {
     onTriggered: {
       root.nowSec = Date.now() / 1000
       if (!loadLive.running) loadLive.running = true
+      if (!loadDemo.running) loadDemo.running = true
     }
   }
 
@@ -633,11 +684,38 @@ Panel {
   // refreshed anything, and the cache it reads was never written by anybody --
   // which is why every vehicle field in this panel was blank.
   function refreshNow() {
-    run(["bash", "-c", "omacar panel-cache --quiet >/dev/null 2>&1"])
+    // The demo's rollup lives in the demo's own tree, and only omacar knows
+    // where that is -- the panel asks rather than reimplementing the path.
+    run(["bash", "-c", root.demoing
+         ? "omacar demo cache >/dev/null 2>&1"
+         : "omacar panel-cache --quiet >/dev/null 2>&1"])
     recheck.restart()
   }
   Timer { id: recheck; interval: 1200; onTriggered: if (!loadCache.running) loadCache.running = true }
   function openCluster() { run(["bash", "-c", "omacar >/dev/null 2>&1 &"]) }
+
+  // Seeding a year of driving is not instant the first time, so the button
+  // dims until the marker turns up rather than looking as though nothing
+  // happened.
+  property bool demoBusy: false
+  function toggleDemo() {
+    if (root.demoBusy)
+      return
+    root.demoBusy = true
+    demoAct.command = ["bash", "-c", root.demoing
+      ? "omacar demo stop >/dev/null 2>&1"
+      : "omacar demo start >/dev/null 2>&1"]
+    demoAct.running = true
+  }
+
+  Process {
+    id: demoAct
+    onExited: {
+      root.demoBusy = false
+      if (!loadDemo.running) loadDemo.running = true
+      if (!loadCache.running) loadCache.running = true
+    }
+  }
 
   // ---- the bar button ------------------------------------------------------
   BarIconButton {
@@ -691,6 +769,8 @@ Panel {
       if (root.issues > 0) bits.push(root.issues + " issue(s)")
       if (root.svc && root.svc.next && root.svc.next.life <= 15)
         bits.push(root.svc.next.item + " due")
+      if (root.demoing)
+        bits.unshift("DEMO — not your car")
       return bits.join("  ·  ") + "\nclick: panel · right-click: cluster"
     }
 
@@ -1209,6 +1289,19 @@ Panel {
                 onPressed: root.stopOmaCar()
               }
 
+              // ONE SWITCH FOR BOTH SURFACES.
+              //
+              // `omacar demo start` brings up the demo's own simulator, serves
+              // it on its own port, opens it in the browser AND drops the
+              // marker this panel watches -- so one press moves the bar widget
+              // and the app together. Two surfaces disagreeing about which car
+              // you are looking at would be worse than no demo at all.
+              PillButton {
+                label: root.demoing ? "Exit demo" : "Demo"
+                fade: root.demoBusy ? 0.5 : 1
+                onPressed: root.toggleDemo()
+              }
+
               PillButton {
                 label: "Open cluster"
                 onPressed: {
@@ -1221,6 +1314,19 @@ Panel {
                 label: "Refresh"
                 onPressed: root.refreshNow()
               }
+            }
+
+            // A stripe across the top of the panel, not a subtle tint. The
+            // whole risk of a demo is somebody reading invented numbers as
+            // their own car's.
+            Rectangle {
+              visible: root.demoing
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.top: parent.top
+              height: Style.space(3)
+              radius: height / 2
+              color: root.cAmber
             }
 
             Car {
@@ -1329,9 +1435,24 @@ Panel {
                 }
               }
 
-              Row {
+              // A Flow, not a Row. The button cluster on the right grew a
+              // Demo control, which narrowed this column -- and a Row has no
+              // opinion about running out of room, so the pills carried on
+              // straight under the buttons. Wrapping is the honest response to
+              // a narrower column.
+              Flow {
+                width: heroCol.width
                 spacing: Style.space(6)
                 topPadding: Style.space(3)
+
+                // First, and unmissable. A panel showing somebody else's
+                // invented car has to say so before it says anything else --
+                // "simulated" alone is too easy to read past when the numbers
+                // beside it look exactly like a real drive.
+                Pill {
+                  label: root.demoing ? "DEMO" : ""
+                  tint: root.cAmber
+                }
 
                 Pill {
                   label: root.issues > 0
