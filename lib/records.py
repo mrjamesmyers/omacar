@@ -44,7 +44,9 @@ def refresh_db():
     global DB
     DB = garage.db_path()
     return DB
-CONFIG = os.path.expanduser("~/.config/omarchy/liquid-glass-car.json")
+CONFIG = os.path.join(os.path.expanduser(
+    os.environ.get("XDG_CONFIG_HOME", "~/.config")),
+    "omarchy", "liquid-glass-car.json")
 
 AFR_GASOLINE = 14.7
 FUEL_DENSITY_G_PER_L = 745.0

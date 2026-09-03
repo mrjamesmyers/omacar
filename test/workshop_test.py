@@ -10,6 +10,7 @@ thing standing between a language model and a confident invention).
 
 import json
 import re
+import subprocess
 import pathlib
 import os
 import shutil
@@ -900,7 +901,25 @@ ok("and it is the adapter alert", bool(_alerts) and _alerts[0]["key"] == "link")
 ok("and it says the adapter stopped answering",
    bool(_alerts) and "no longer answering" in _alerts[0]["body"])
 
-ok("records.live marks a hand-off as one", "handover" in records.live())
+# Against a snapshot we wrote, NOT against whatever live.json happens to hold.
+# The first version of this asserted on the real file and passed only by luck:
+# the moment a genuine sample went stale, live() took its early return -- which
+# has no `handover` key at all -- and the suite went red for a reason that had
+# nothing to do with the code.
+_livep = os.path.join(tmp, "live.json")
+_real_live = records.LIVE
+records.LIVE = _livep
+with open(_livep, "w") as _f:
+    json.dump({"connected": False, "status": "yielded", "t": time.time(),
+               "values": {"SPEED": 40}}, _f)
+_snap = records.live()
+ok("records.live marks a hand-off as one", _snap.get("handover") is True)
+ok("and hands back the readings it was given anyway",
+   (_snap.get("values") or {}).get("SPEED") == 40)
+with open(_livep, "w") as _f:
+    json.dump({"connected": True, "status": "ok", "t": time.time()}, _f)
+ok("an ordinary sample is not a hand-off", records.live().get("handover") is False)
+records.LIVE = _real_live
 
 
 head("Whose car")
@@ -1072,6 +1091,45 @@ ok("a kind that does not exist is dropped", "coolant" not in _saved)
 ok("a non-string tile id is dropped", 7 not in _saved)
 ok("the good ones survive", _saved == {"speed": "dial", "rpm": "arc"})
 
+
+head("Demo mode")
+
+# A demo has to be unable to touch the car you actually drive. The isolation is
+# two environment variables -- everything hangs off XDG_STATE_HOME or
+# XDG_CONFIG_HOME -- which only works if nothing hardcodes ~/.config.
+_cfg_users = {"lib/api.py": "DRIVE_CFG", "lib/records.py": "CONFIG",
+              "lib/themes.py": "STORE", "lib/watch.py": "CONFIG",
+              "lib/plugins.py": "ROOT"}
+_root = pathlib.Path(__file__).resolve().parent.parent
+for _f in _cfg_users:
+    _src = (_root / _f).read_text(encoding="utf-8")
+    ok(f"{_f} does not hardcode ~/.config",
+       'expanduser("~/.config' not in _src)
+    ok(f"{_f} honours XDG_CONFIG_HOME", 'XDG_CONFIG_HOME' in _src)
+
+# ...and that it actually resolves, not just that the string is present.
+_envd = dict(os.environ, XDG_CONFIG_HOME=os.path.join(tmp, "cfg"))
+_probe = subprocess.run(
+    [sys.executable, "-c",
+     "import sys; sys.path.insert(0, %r); import themes; print(themes.STORE)"
+     % str(_root / "lib")],
+    capture_output=True, text=True, env=_envd)
+ok("a redirected config home really moves the theme store",
+   _probe.returncode == 0 and _probe.stdout.strip().startswith(os.path.join(tmp, "cfg")))
+
+_cli = (_root / "bin" / "omacar").read_text(encoding="utf-8")
+_demo_env = _cli.split("demo_env() {", 1)[-1].split("\n}", 1)[0]
+ok("demo redirects both homes",
+   'XDG_STATE_HOME="$DEMO_ROOT/state"' in _demo_env
+   and 'XDG_CONFIG_HOME="$DEMO_ROOT/config"' in _demo_env)
+# The one that bit: these are assigned at script load from the REAL state, so
+# without re-deriving them `omacar demo stop` kills the simulator you were
+# running for yourself.
+for _v in ("OMACAR_STATE", "SIM_PID", "DAEMON_PID", "WATCH_PID"):
+    ok(f"demo re-derives {_v} rather than inheriting the real one",
+       f'{_v}="$OMACAR_STATE' in _demo_env or f'{_v}="$XDG_STATE_HOME' in _demo_env)
+ok("trashing refuses anything that is not the demo directory",
+   "*/omacar-demo)" in _cli and "refusing to delete" in _cli)
 
 head("The logger that waits")
 

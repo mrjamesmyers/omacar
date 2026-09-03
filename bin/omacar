@@ -42,6 +42,9 @@
 #                             the diagnostic advisor — reads this car's own
 #                             numbers and tells you what is actually wrong
 #   omacar state              key=value status for the bar widget
+#   omacar demo start|stop|status|trash
+#                             a throwaway OmaCar with its own data, for showing
+#                             somebody. Cannot touch your real car.
 #   omacar server status|stop the loopback server the app is served from
 #   omacar help               this text
 #
@@ -97,6 +100,123 @@ server_stop() {
     [[ -n "$pid" ]] && kill "$pid" 2>/dev/null && n=$((n + 1))
   done
   echo "stopped $n server(s)"
+}
+
+# --- demo mode --------------------------------------------------------------
+#
+# A second OmaCar with its own everything, for showing somebody the tool
+# without their fingerprints landing on the car you actually drive.
+#
+# THE ISOLATION IS TWO ENVIRONMENT VARIABLES, AND THAT IS THE POINT.
+#
+# Every byte this app reads or writes hangs off XDG_STATE_HOME (the garage,
+# live.json, the alert feed, the DTC logs, the port lease) or XDG_CONFIG_HOME
+# (the drive layout, your themes, the watchdog settings). Redirect both and the
+# demo is a different installation that happens to share a binary.
+#
+# So there is no list of files to keep in sync as the app grows, nothing to
+# back up before starting, and nothing to restore after. `omacar demo trash`
+# deletes one directory and the demo has never existed.
+#
+# The one thing it deliberately still reads from the real machine is the
+# desktop theme, so a demo looks like this desktop. That path is read-only.
+DEMO_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/omacar-demo"
+DEMO_PORT=7580
+
+demo_env() {
+  export XDG_STATE_HOME="$DEMO_ROOT/state"
+  export XDG_CONFIG_HOME="$DEMO_ROOT/config"
+  # env.sh derived this from the REAL XDG_STATE_HOME when the script started,
+  # so it has to be recomputed or the shell half of the app writes home.
+  export OMACAR_STATE="$XDG_STATE_HOME/omacar"
+
+  # AND SO DO THE PID PATHS, WHICH IS THE DANGEROUS ONE.
+  #
+  # These are assigned once at script load from the real OMACAR_STATE. Left
+  # alone, `omacar demo stop` reads the REAL sim.pid and kills the simulator
+  # you were running for yourself -- a demo command reaching out of its box to
+  # stop something of yours, which is the one thing this mode exists to
+  # prevent. Caught because `demo status` said the demo car was not running
+  # while the demo's own API was reporting it connected and idling.
+  DAEMON_PID="$OMACAR_STATE/daemon.pid"
+  SIM_PID="$OMACAR_STATE/sim.pid"
+  WATCH_PID="$OMACAR_STATE/watch.pid"
+
+  mkdir -p "$OMACAR_STATE" "$XDG_CONFIG_HOME/omarchy"
+}
+
+demo_server_pid() {
+  ss -lptn "sport = :$DEMO_PORT" 2>/dev/null | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2
+}
+
+demo_start() {
+  demo_env
+  omacar_need_env
+  local fresh=0
+  [[ -d "$OMACAR_STATE/vehicles" ]] || fresh=1
+  if (( fresh )); then
+    echo "  building a demo car…"
+    "$OMACAR_PY" "$ROOT/lib/sim.py" seed >/dev/null
+  fi
+  if ! sim_pid >/dev/null; then
+    setsid -f "$OMACAR_PY" "$ROOT/lib/sim.py" run >"$OMACAR_STATE/sim.log" 2>&1
+    local i
+    for i in $(seq 1 40); do sleep 0.2; sim_pid >/dev/null && break; done
+  fi
+  if [[ -z "$(demo_server_pid)" ]]; then
+    setsid -f "$OMACAR_PY" "$ROOT/lib/serve.py" "$DEMO_PORT" "$ROOT/share" \
+      >"$OMACAR_STATE/serve.log" 2>&1
+    for i in $(seq 1 30); do
+      sleep 0.2
+      [[ "$(curl -fsS --max-time 1 "http://127.0.0.1:$DEMO_PORT/.mark" 2>/dev/null)" == *"$MARK"* ]] && break
+    done
+  fi
+  echo
+  echo "  demo running   http://127.0.0.1:$DEMO_PORT/app.html"
+  echo "  its data       $DEMO_ROOT"
+  echo "  your car       untouched — different state, different settings"
+  echo
+  echo "  omacar demo trash   when you are done with it"
+  echo
+  open_url "http://127.0.0.1:$DEMO_PORT/app.html"
+}
+
+demo_stop() {
+  demo_env
+  local pid n=0
+  if pid=$(sim_pid); then kill "$pid" 2>/dev/null && n=$((n + 1)); fi
+  pid=$(demo_server_pid)
+  [[ -n "$pid" ]] && kill "$pid" 2>/dev/null && n=$((n + 1))
+  echo "  stopped $n demo process(es); its data is still in $DEMO_ROOT"
+}
+
+demo_status() {
+  local root="$DEMO_ROOT"
+  demo_env
+  echo
+  echo "  demo data      $([[ -d "$root" ]] && du -sh "$root" 2>/dev/null | cut -f1 || echo "none yet")  $root"
+  echo "  demo car       $(sim_pid >/dev/null && echo "running (pid $(sim_pid))" || echo "not running")"
+  echo "  demo server    $([[ -n "$(demo_server_pid)" ]] && echo "http://127.0.0.1:$DEMO_PORT/app.html" || echo "not running")"
+  echo
+}
+
+demo_trash() {
+  local root="$DEMO_ROOT"
+  # Belt and braces on a recursive delete. The path is derived, not typed, but
+  # a wrong variable here would take somebody's real state with it -- so it has
+  # to LOOK like the demo directory before anything is removed.
+  case "$root" in
+    */omacar-demo) ;;
+    *) echo "omacar: refusing to delete \"$root\" — that is not the demo directory" >&2; exit 1 ;;
+  esac
+  demo_stop >/dev/null 2>&1 || true
+  if [[ -d "$root" ]]; then
+    rm -rf "$root"
+    echo "  demo trashed — $root is gone"
+  else
+    echo "  nothing to trash"
+  fi
+  echo "  your car, settings and themes were never touched"
 }
 
 server_status() {
@@ -584,6 +704,13 @@ print()
       list) exec python3 "$ROOT/lib/watch.py" list ;;
       run) shift 2 || true; exec python3 "$ROOT/lib/watch.py" "$@" ;;
       *) if p=$(watch_pid); then echo "running (pid $p)"; else echo "not running"; fi ;;
+    esac ;;
+  demo)
+    case "${2:-status}" in
+      start) demo_start ;;
+      stop) demo_stop ;;
+      trash) demo_trash ;;
+      *) demo_status ;;
     esac ;;
   state) state ;;
   server) case "${2:-status}" in stop) server_stop ;; *) server_status ;; esac ;;

@@ -326,7 +326,13 @@ def record_clear_locally(module=None):
 # than being able to change it — which is the right way round: you set this up
 # in the kitchen, not at seventy miles an hour.
 
-DRIVE_CFG = os.path.expanduser("~/.config/omarchy/omacar-drive.json")
+# Config lives under XDG_CONFIG_HOME, exactly as state lives under
+# XDG_STATE_HOME. Hardcoding ~/.config meant demo mode could redirect every
+# byte of state and still overwrite the drive layout and themes of the car you
+# actually drive.
+DRIVE_CFG = os.path.join(os.path.expanduser(
+    os.environ.get("XDG_CONFIG_HOME", "~/.config")),
+    "omarchy", "omacar-drive.json")
 
 DEFAULT_DRIVE = {
     "hero": "speed",

@@ -46,7 +46,9 @@ STATEFILE = os.path.join(records.STATE, "watch-state.json")
 # desktop reads its data.
 FEED = os.path.join(records.STATE, "alerts.json")
 FEED_KEEP = 20
-CONFIG = os.path.expanduser("~/.config/omarchy/omacar-watch.json")
+CONFIG = os.path.join(os.path.expanduser(
+    os.environ.get("XDG_CONFIG_HOME", "~/.config")),
+    "omarchy", "omacar-watch.json")
 
 POLL = 2.0
 # A trip ends when the engine has been off this long. Long enough to survive a

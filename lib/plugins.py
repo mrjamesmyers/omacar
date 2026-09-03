@@ -57,7 +57,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import records  # noqa: E402
 
-ROOT = os.path.expanduser("~/.config/omacar/plugins")
+ROOT = os.path.join(os.path.expanduser(
+    os.environ.get("XDG_CONFIG_HOME", "~/.config")),
+    "omacar", "plugins")
 
 # A hook gets this long, then it is killed. Generous for anything sensible and
 # far too short to matter to a car.

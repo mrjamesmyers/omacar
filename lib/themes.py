@@ -33,7 +33,9 @@ import os
 import re
 import time
 
-STORE = os.path.expanduser("~/.config/omarchy/omacar-themes.json")
+STORE = os.path.join(os.path.expanduser(
+    os.environ.get("XDG_CONFIG_HOME", "~/.config")),
+    "omarchy", "omacar-themes.json")
 
 # What the app is currently wearing. "omarchy" means follow the desktop.
 DESKTOP = "omarchy"
