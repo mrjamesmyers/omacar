@@ -19,13 +19,25 @@
    the cascade like everything else; JavaScript only ever holds a copy that is
    thrown away on the next repaint.
 
-   The order of the six is deliberate. --info, --ok and --ai are the neutral
-   ones and come first, because a lane is not a verdict: a coolant trace drawn
-   in --bad reads as "the coolant is bad" when all it means is "this is the
-   third thing you asked for". --warn and --bad only appear once you have
-   stacked five and six channels, at which point telling them apart matters more
-   than what they imply. The two mixes in the middle exist because six lanes
-   need six hues and the token set has five.
+   THE SIX ARE NOW DERIVED, NOT ASSEMBLED HERE.
+   This used to build its own six out of --info, --ok, --ai, --warn, --bad and
+   two colour-mixes, on the reasoning that six lanes need six hues and the
+   semantic set has five. The reasoning was sound and the result was not: those
+   six were measured at ΔE 3.9 between --bad and --warn for a red-green
+   colourblind reader and 7.7 for everyone else, with one of the mixes at
+   chroma 0.047 — grey. Two of six lines nobody could follow.
+   --series-1..6 come from lib/separation.py, which derives them per theme
+   against a separation floor the way theme.py already derives everything else
+   against a contrast floor. The old set stays as the fallback after the comma,
+   so a browser that somehow has no theme applied still draws six distinct-ish
+   lines rather than six unset variables.
+
+   The ORDER still matters and is still deliberate. A lane is not a verdict: a
+   coolant trace drawn in --bad reads as "the coolant is bad" when all it means
+   is "this is the third thing you asked for". separation.py is seeded in the
+   same neutral-first order for that reason — accent, ok, ai, then info, warn,
+   bad — so the reds only arrive once you have stacked enough channels that
+   telling them apart matters more than what they imply.
 
    READABLE THROUGH A WINDSCREEN AT NOON.
    The lane labels sit on --faint and the axis clock on --ghost, which is the
@@ -37,12 +49,12 @@
    daylight), and every number that matters is a DOM node in --ink rather than
    canvas text. */
 
-.replay { --rp-lane-1: var(--info);
-          --rp-lane-2: color-mix(in srgb, var(--ok) 84%, var(--ink));
-          --rp-lane-3: var(--ai);
-          --rp-lane-4: color-mix(in srgb, var(--info) 55%, var(--ok));
-          --rp-lane-5: var(--warn);
-          --rp-lane-6: var(--bad); }
+.replay { --rp-lane-1: var(--series-1, var(--info));
+          --rp-lane-2: var(--series-2, color-mix(in srgb, var(--ok) 84%, var(--ink)));
+          --rp-lane-3: var(--series-3, var(--ai));
+          --rp-lane-4: var(--series-4, color-mix(in srgb, var(--info) 55%, var(--ok)));
+          --rp-lane-5: var(--series-5, var(--warn));
+          --rp-lane-6: var(--series-6, var(--bad)); }
 
 /* The probe the canvas reads its palette through. Never seen, never laid out,
    but it has to be IN the document: a detached element resolves no variables. */
