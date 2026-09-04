@@ -177,6 +177,15 @@ def headers_for(vin=None, slug=None):
             slug = profilelib.for_vin(vin)
         if slug:
             doc, _p = profilelib.load(slug)
+            # Refuted modules are skipped. `refuted` means somebody swept it
+            # and it answered nothing -- keeping it in the sweep spends a round
+            # trip per subfunction to re-learn a silence that is already
+            # recorded. The entry stays in the profile precisely so it does not
+            # have to be rediscovered; honouring it here is the payoff.
+            live = [m for m in (doc.get("module") or [])
+                    if m.get("header") and m.get("confidence") != "refuted"]
+            if live:
+                return [m["header"] for m in live]
             mods = profilelib.modules(doc, default=None)
             if mods:
                 return [h for h, _label in mods]

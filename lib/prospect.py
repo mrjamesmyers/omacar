@@ -44,8 +44,20 @@ def parse_range(spec, width):
 
 
 def moving(el):
-    """True if the car reports any road speed. Refuse to sweep if so."""
-    el.set_header("07DF")
+    """True if the car reports any road speed. Refuse to sweep if so.
+
+    The broadcast header comes from the protocol rather than being assumed.
+    "07DF" is the 11-bit CAN functional address and it is the wrong shape on a
+    29-bit car -- which is every Honda this project has touched. set_header()
+    rightly refuses it, so the safety check that exists to stop a sweep while
+    the car is moving was instead crashing `omacar dtc` before it could read
+    anything at all.
+    """
+    try:
+        import protocols
+        el.set_header(protocols.broadcast(getattr(el, "protocol", None)))
+    except Exception:
+        el.set_header("07DF")
     kind, _, data = elmlib.classify(el.request("010D"), 0x01, "010D")
     if kind != "positive" or len(data) < 6:
         return None                      # cannot tell — caller decides

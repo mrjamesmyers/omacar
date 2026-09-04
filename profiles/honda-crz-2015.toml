@@ -33,9 +33,9 @@ redline = 6300
 
 [meta]
 created = "2026-09-02T07:01:47Z"
-updated = "2026-09-03T21:24:53Z"
+updated = "2026-09-04T01:37:33Z"
 contributors = ["mrjamesmyers"]
-checksum = "sha256:581c7b44e76b949de3c1b0bde3ae2b26562bc79fde2c42cf2c7cc4e4ffe991ec"   # integrity, NOT a signature
+checksum = "sha256:60ac5e2f58def683209dc637ba8d30e90ff31d0e232d6d1a2aadb23360a6950f"   # integrity, NOT a signature
 
 # ---- what this car is made of ----------------------------------------------
 #
@@ -66,7 +66,14 @@ confidence = "validated"
 
 [[module]]
 header = "18DA0EF1"
-label = "gateway / other"
+# Not merely "other". Measured 2026-09-03 on a real CR-Z: this module answers
+# service 0x19 with a 166-code catalogue carrying the ENGINE's codes (P0300-
+# P0304 misfire, P0171/2 trim, P0201-4 injectors) and the TRANSMISSION's
+# (P0712/3 fluid temp, P0842/3, P0962-P0971 pressure solenoids, P0780 shift).
+# 18DA10F1 and 18DA18F1 return NO DATA to 0x19 -- they do not need to answer,
+# because this module answers for them. Anything hunting for engine or gearbox
+# faults on this car must ask HERE.
+label = "gateway (proxies engine + transmission faults)"
 role = "gateway"
 confidence = "validated"
 
@@ -74,7 +81,19 @@ confidence = "validated"
 header = "18DA01F1"
 label = "body"
 role = "body"
-confidence = "candidate"
+# Refuted, not deleted. Swept 2026-09-03 with the engine running: NO DATA on
+# every one of the eight 0x19 subfunctions. Recording that it was tried and is
+# wrong is the whole reason `refuted` exists -- it saves the next CR-Z owner
+# the round trip rather than leaving them to rediscover the silence.
+confidence = "refuted"
+
+  [module.provenance]
+  found_by = "mrjamesmyers"
+  found_on = "2015 Honda CR-Z"
+  method = "omacar dtc, engine running, parked"
+  refuted_by = "mrjamesmyers"
+  refuted_on = "20260903"
+  note = "no answer to any 0x19 subfunction"
 
 # What is worth asking for, and how often. Order is a statement about priority
 # on a link that can only carry so many requests a second.

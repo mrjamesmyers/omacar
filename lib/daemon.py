@@ -81,6 +81,16 @@ def value_of(result):
     return float(v.magnitude) if hasattr(v, "magnitude") else v
 
 
+# Startup contention budget. Twelve tries at 2.5s is thirty seconds, which
+# comfortably outlasts a dtclog sweep of four modules -- the thing that was
+# actually holding the port when this failed. Bounded rather than infinite so
+# `omacar daemon start` still reports failure on a car that is genuinely off,
+# rather than hanging until somebody notices.
+STARTUP_TRIES = 12
+STARTUP_BACKOFF = 2.5
+STARTUP_LOCK_WAIT = 20.0
+
+
 def _unwind(_signum, _frame):
     """Turn a stop signal into the exception the loop already knows about.
 
@@ -114,12 +124,56 @@ def main():
             pass
 
     # lease=False: this process is the one the lease exists to move aside.
-    conn, port, kind = connect.connect(timeout=1.0, fast=True, lease=False)
+    #
+    # BUT IT STILL HAS TO WAIT ITS TURN.
+    #
+    # lease=False skips request_port(), which skips take_port_lock() as well --
+    # so the daemon used to open the serial device regardless of who was
+    # already talking to it. On 2026-09-03 dtclog was mid-sweep when the daemon
+    # started; two readers hit one ELM327, the adapter answered neither
+    # properly, and the daemon exited "not connected". The owner was sitting in
+    # the car with a perfectly healthy adapter reading 13.7 V.
+    #
+    # hand_over() has retried twenty times since it was written, because a
+    # daemon that gives up its port mid-run and cannot get it back is obviously
+    # broken. Startup had exactly the same problem and one attempt. So: wait
+    # for whoever holds the exclusive lock to finish, then retry on the same
+    # terms the running daemon already uses.
     import obd
 
-    if conn.status() != obd.OBDStatus.CAR_CONNECTED:
-        publish({"connected": False, "status": str(conn.status()), "port": port})
-        sys.exit(f"omacar daemon: not connected ({conn.status()})")
+    conn = port = kind = None
+    for attempt in range(STARTUP_TRIES):
+        # Taking the flock and immediately dropping it is how this waits for an
+        # in-flight one-off command WITHOUT holding a lock for the daemon's
+        # whole life -- which would deadlock every command that needs the port.
+        if connect.take_port_lock(timeout=STARTUP_LOCK_WAIT):
+            connect.release_port_lock()
+        try:
+            conn, port, kind = connect.connect(timeout=1.0, fast=True,
+                                               lease=False)
+        except SystemExit:
+            raise
+        except Exception:                                     # noqa: BLE001
+            conn = None
+        if conn is not None and conn.status() == obd.OBDStatus.CAR_CONNECTED:
+            break
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                                 # noqa: BLE001
+                pass
+            conn = None
+        if attempt < STARTUP_TRIES - 1:
+            # The adapter needs a moment after another reader has closed it --
+            # the same 0.6s courtesy hand_over() already pays, rounded up
+            # because a sweep can take longer than a lease to unwind.
+            time.sleep(STARTUP_BACKOFF)
+
+    if conn is None or conn.status() != obd.OBDStatus.CAR_CONNECTED:
+        status = str(conn.status()) if conn is not None else "no connection"
+        publish({"connected": False, "status": status, "port": port})
+        sys.exit(f"omacar daemon: not connected ({status}) "
+                 f"after {STARTUP_TRIES} attempts")
 
     with open(PIDFILE, "w", encoding="utf-8") as f:
         f.write(str(os.getpid()))
