@@ -265,6 +265,128 @@ Panel {
     root.daemonStopping = true
     stopDaemon.running = true
   }
+
+  // ONE BUTTON FOR THE LINK, BECAUSE THERE IS ONLY EVER ONE THING TO DO TO IT.
+  //
+  // Connect and Stop were two pills, each hidden while the other applied, and
+  // between them they could not say the third thing that actually happens:
+  // the adapter is pulled or the daemon dies, live.json is left behind still
+  // claiming a connection, and the panel goes back to offering "Connect" --
+  // which is the right press but the wrong word, because it reads as "nothing
+  // was ever plugged in" when the panel knows perfectly well that something
+  // was. That state gets its own label now, and the pair became one control
+  // in one place, which is also one less thing to find.
+  //
+  // IT SPEAKS FOR THE REAL DAEMON, NEVER THE DEMO. `connected` follows
+  // whichever sample is being shown, so during a demo it went true and the
+  // button read "Stop" -- over a demo that has no daemon to stop, next to a
+  // Stop that would have killed the real one had it been running. `realLive`
+  // is read from the real live.json on every tick regardless of the demo, so
+  // the link control is about the cable and nothing else.
+  readonly property int realAge: (realSample.t || 0) > 0
+    ? Math.max(0, Math.round(root.nowSec - realSample.t)) : -1
+  // A claim of a connection that is too old to believe: something was running
+  // and is not any more. A clean `omacar daemon stop` does not land here --
+  // it publishes connected=false, and that is a Connect, not a Reconnect.
+  //
+  // That sentence was written as fact before it was true. `omacar daemon stop`
+  // sends SIGTERM, and Python terminates on SIGTERM WITHOUT unwinding, so the
+  // daemon's `finally` never ran and connected=true was left on disk -- which
+  // landed a deliberate shutdown here, in `dropped`, and offered "Reconnect"
+  // for a daemon the owner had just stopped on purpose. lib/daemon.py now
+  // installs a handler that raises KeyboardInterrupt so the cleanup runs, and
+  // the sentence above is true because of that handler, not on its own.
+  // Removing it re-breaks this button.
+  //
+  // "yielded" counts, because a daemon that dies during a DTC sweep leaves
+  // exactly that behind and it was every bit as connected a moment earlier.
+  readonly property bool realDropped: (realSample.connected === true
+                                       || realSample.status === "yielded")
+    && !root.realLive && root.realAge > 0
+
+  readonly property string linkState: {
+    if (root.daemonStopping) return "stopping"
+    if (root.daemonStarting) return "connecting"
+    if (root.realLive)       return "connected"
+    if (root.realDropped)    return "dropped"
+    return "idle"
+  }
+  readonly property bool linkBusy: root.linkState === "stopping"
+                                || root.linkState === "connecting"
+  readonly property string linkLabel: {
+    // U+F06A5 is nf-md-power_plug, checked present in the bar font rather
+    // than assumed. It rides the three labels that are about making a link
+    // and not the two that are about ending one.
+    switch (root.linkState) {
+    case "stopping":   return "Stopping"
+    case "connected":  return "Stop"
+    case "connecting": return "\u{F06A5}  Connecting"
+    case "dropped":    return "\u{F06A5}  Reconnect"
+    default:           return "\u{F06A5}  Connect"
+    }
+  }
+
+  // RECONNECT HAS TO ACTUALLY RECONNECT.
+  //
+  // It used to call startOmaCar(), and `daemon_start` opens with
+  //   if daemon_pid >/dev/null; then echo "daemon already running"; return; fi
+  // -- so in the one state the button exists for, it did nothing. `dropped`
+  // means the file still claims a connection and has gone quiet, and the
+  // commonest cause of that is a daemon that is alive but wedged on the serial
+  // port. It IS running, so start correctly refuses, prints a line nobody
+  // sees, and the panel goes on saying "Reconnect" for ever. A button that
+  // reports success and changes nothing is worse than one that fails.
+  //
+  // So dropped gets a stop first. Sequential in one shell, because the start
+  // must not race the stop for the port.
+  Process {
+    id: restartDaemon
+    command: ["bash", "-lc", "omacar daemon stop; omacar daemon start 2>&1"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.daemonStarting = false
+        root.startError = text.indexOf("did not start") >= 0
+          ? "could not restart — is the ignition on?" : ""
+      }
+    }
+  }
+  function restartOmaCar() {
+    if (root.daemonStarting) return
+    root.startError = ""
+    root.daemonStarting = true
+    restartDaemon.running = true
+  }
+
+  function toggleLink() {
+    if (root.linkBusy) return
+    if (root.realLive) { root.stopOmaCar(); return }
+    if (root.realDropped) { root.restartOmaCar(); return }
+    root.startOmaCar()
+  }
+
+  // A BUSY FLAG THAT CANNOT STICK.
+  //
+  // Both flags are cleared by their Process's onStreamFinished, and if that
+  // never arrives -- the shell is killed, `omacar` is not on PATH under
+  // `bash -lc`, the collector never sees an end -- the button sits on
+  // "Connecting" or "Stopping" with linkBusy true, and toggleLink() returns
+  // early for ever. That is the whole failure: not a wrong label, but a
+  // control with no way out short of restarting the shell.
+  //
+  // Twenty seconds is past the worst honest case: daemon_start polls 40 times
+  // at 0.25s before giving up, so ten seconds is its own ceiling.
+  Timer {
+    id: linkWatchdog
+    interval: 20000
+    running: root.daemonStarting || root.daemonStopping
+    repeat: false
+    onTriggered: {
+      root.daemonStarting = false
+      root.daemonStopping = false
+      if (root.startError === "") root.startError = "no answer — try again"
+    }
+  }
   readonly property int issues: car.issues || 0
 
   // Worth lighting the bar for: something is past due, or a code has set in
@@ -680,9 +802,15 @@ Panel {
     act.command = args
     act.running = true
   }
-  // `liquid-glass-car` was never a command. Refresh has therefore never once
-  // refreshed anything, and the cache it reads was never written by anybody --
-  // which is why every vehicle field in this panel was blank.
+  // Rebuilds the rollup this panel reads. `liquid-glass-car` was never a
+  // command, so for a long time this refreshed nothing and the cache it reads
+  // was never written by anybody -- which is why every vehicle field in this
+  // panel was blank.
+  //
+  // No button calls it any more. Its callers are the panel opening, the timer
+  // below while it stays open, and the demo switching trees: three moments
+  // where the rollup is known to be behind, which between them are every
+  // moment the button was ever pressed for.
   function refreshNow() {
     // The demo's rollup lives in the demo's own tree, and only omacar knows
     // where that is -- the panel asks rather than reimplementing the path.
@@ -692,6 +820,53 @@ Panel {
     recheck.restart()
   }
   Timer { id: recheck; interval: 1200; onTriggered: if (!loadCache.running) loadCache.running = true }
+
+  // THE PANEL REFRESHES ITSELF NOW, WHICH IS WHY THERE IS NO REFRESH BUTTON.
+  //
+  // There was one, and it was the only thing in the panel that ever REBUILT
+  // the rollup: opening the panel rebuilt it once and then nothing did, so
+  // odometer, service life and the day's distance were frozen at whatever
+  // they were when you opened it, however long you sat there. The live sample
+  // ticks every second and made that easy to miss -- the numbers that move
+  // moved, and the numbers beside them quietly did not.
+  //
+  // Thirty seconds, and only while the panel is open. The rollup walks the
+  // telemetry database, which is not free, and nothing is reading it while
+  // the panel is shut; a minute-old service percentage on a screen nobody is
+  // looking at is not a problem worth spawning a process for.
+  Timer {
+    interval: 30000
+    running: root.opened
+    repeat: true
+    onTriggered: root.refreshNow()
+  }
+
+  // SWITCHING TREES MUST NOT LEAVE THE OTHER CAR'S NUMBERS ON SCREEN.
+  //
+  // `car` is a whole rollup read from whichever tree is live, and the read is
+  // asynchronous. Stopping the demo repointed `cache` instantly but the panel
+  // went on showing the demo's oil life, its service book and its `simulated`
+  // flag until the next read landed -- up to ten seconds of invented numbers
+  // with the DEMO badge already gone from beside them, because the badge
+  // follows a marker file and the numbers follow a file read. That is the one
+  // failure a demo is not allowed to have.
+  //
+  // So the rollup is blanked the instant the source changes. Empty is the
+  // honest state: the panel genuinely knows nothing about the other tree yet,
+  // and every pill hides itself on an empty label rather than showing the
+  // wrong one. The rebuild below fills it back in, and `recheck` re-reads it
+  // a beat later -- deliberately not read here, because the `cache` path is a
+  // binding on this same property and reading it in the same handler is a
+  // race for which tree you get.
+  //
+  // It fires both ways, including the way that matters most: a real car
+  // waking up mid-demo drops `demoing` on its own, and this is what clears
+  // the demo's figures off the screen when it does.
+  onDemoingChanged: {
+    root.car = ({})
+    root.refreshNow()
+  }
+
   function openCluster() { run(["bash", "-c", "omacar >/dev/null 2>&1 &"]) }
 
   // Seeding a year of driving is not instant the first time, so the button
@@ -712,8 +887,11 @@ Panel {
     id: demoAct
     onExited: {
       root.demoBusy = false
+      // Only the marker. Re-reading the rollup here read whichever tree the
+      // path binding still pointed at -- and it pointed at the old one until
+      // this very read told it otherwise, so stopping the demo pulled the
+      // demo's cache in one last time. onDemoingChanged owns that now.
       if (!loadDemo.running) loadDemo.running = true
-      if (!loadCache.running) loadCache.running = true
     }
   }
 
@@ -771,11 +949,21 @@ Panel {
         bits.push(root.svc.next.item + " due")
       if (root.demoing)
         bits.unshift("DEMO — not your car")
-      return bits.join("  ·  ") + "\nclick: panel · right-click: cluster"
+      return bits.join("  ·  ") + "\nclick: panel · "
+             + (root.realLive ? "" : "middle: connect · ")
+             + "right-click: cluster"
     }
 
     onPressed: function (b) {
-      if (b === Qt.MiddleButton) { root.refreshNow(); return }
+      // Middle-click was Refresh, and Refresh is gone -- the panel keeps its
+      // own rollup current. Connecting is what is left that is worth doing
+      // without opening anything, and it is offered in that direction only: a
+      // middle-click that could cut the link to a car you are driving is not
+      // a shortcut, it is a hazard. When there is a link, this does nothing.
+      if (b === Qt.MiddleButton) {
+        if (!root.realLive && !root.linkBusy) root.startOmaCar()
+        return
+      }
       if (b === Qt.RightButton) { root.openCluster(); return }
       root.toggle()
     }
@@ -894,7 +1082,14 @@ Panel {
   component PillButton: Rectangle {
     id: pb
     property string label: ""
-    property real fade: 1.0
+    // BUSY IS A STATE, NOT A SHADE.
+    //
+    // This was a `fade` number, and a button dimmed to 0.5 still took the
+    // click -- so a second press while the daemon was coming up queued a
+    // second `omacar daemon start` behind the first. The dimming and the
+    // deafness now come from one property, because they were never two
+    // separate decisions.
+    property bool busy: false
     signal pressed
 
     width: pbText.implicitWidth + Style.space(18)
@@ -903,7 +1098,7 @@ Panel {
     color: pbMouse.containsMouse ? root.dim(0.22) : root.dim(0.10)
     border.width: 1
     border.color: root.dim(0.32)
-    opacity: pb.fade
+    opacity: pb.busy ? 0.5 : 1
     Behavior on color {
       ColorAnimation { duration: 120 }
     }
@@ -922,6 +1117,10 @@ Panel {
       id: pbMouse
       anchors.fill: parent
       hoverEnabled: true
+      // Disabled rather than ignored: it also stops the hover tint, so a busy
+      // button does not light up under the pointer as though it were waiting
+      // to be pressed again.
+      enabled: !pb.busy
       cursorShape: Qt.PointingHandCursor
       onClicked: pb.pressed()
     }
@@ -1246,17 +1445,23 @@ Panel {
             height: Math.max(heroCol.implicitHeight,
                              heroWheel.height + Style.space(8) + heroBtns.height)
 
-            // EVERY action in one row, right-aligned under the car.
+            // THREE ACTIONS, IN ONE ROW, RIGHT-ALIGNED UNDER THE CAR.
             //
-            // Open cluster and Refresh used to live in the footer, at the far
-            // end of a scrolling panel -- so the two controls you reach for
-            // most were the two you had to scroll to find. Up here all of them
-            // are visible the moment the panel opens.
+            // There were five pills here and two of them were the same
+            // decision wearing different labels: Connect and Stop are the one
+            // link control (see linkState), so they are one button. Refresh
+            // is gone outright -- it was the panel admitting it did not keep
+            // itself current, and the timer above means it does.
             //
-            // Stop is deliberately the LEFTMOST of the three. It severs the
-            // link to the car, and the right edge is where a thumb rests on a
-            // touchscreen in a moving vehicle; the harmless action gets that
-            // spot instead.
+            // What is left is the whole set: the link, the demo, the app.
+            // They sit at the top rather than in the footer because the
+            // footer is inside the scroller, and the controls you reach for
+            // every time should not be the ones you have to scroll to find.
+            //
+            // The link button is deliberately the LEFTMOST. In its Stop state
+            // it severs the connection to the car, and the right edge is where
+            // a thumb rests on a touchscreen in a moving vehicle; the harmless
+            // action gets that spot instead.
             Row {
               id: heroBtns
               anchors.top: heroWheel.bottom
@@ -1267,26 +1472,16 @@ Panel {
               // A PLUG, not a play triangle. Play means "begin something";
               // this establishes a link to a car over a serial adapter, and a
               // plug is the thing you physically did a moment earlier.
-              // U+F06A5 is nf-md-power_plug, checked present in the bar font
-              // rather than assumed.
               //
               // It sits in the row rather than in the corner as a circle. The
               // corner argument was that a lone control there could not fight
               // the car for the space; once every other action moved into this
-              // row, one round button floating above three pills was simply
-              // the odd one out.
+              // row, one round button floating above the pills was simply the
+              // odd one out.
               PillButton {
-                visible: !root.connected
-                label: root.daemonStarting ? "\u{F06A5}  Connecting" : "\u{F06A5}  Connect"
-                fade: root.daemonStarting ? 0.5 : 1
-                onPressed: root.startOmaCar()
-              }
-
-              PillButton {
-                visible: root.connected
-                label: root.daemonStopping ? "Stopping" : "Stop"
-                fade: root.daemonStopping ? 0.5 : 1
-                onPressed: root.stopOmaCar()
+                label: root.linkLabel
+                busy: root.linkBusy
+                onPressed: root.toggleLink()
               }
 
               // ONE SWITCH FOR BOTH SURFACES.
@@ -1297,22 +1492,20 @@ Panel {
               // and the app together. Two surfaces disagreeing about which car
               // you are looking at would be worse than no demo at all.
               PillButton {
-                label: root.demoing ? "Exit demo" : "Demo"
-                fade: root.demoBusy ? 0.5 : 1
+                label: root.demoing ? "Demo Off" : "Demo"
+                busy: root.demoBusy
                 onPressed: root.toggleDemo()
               }
 
+              // "Control Center", not "Open cluster". The window this opens is
+              // every surface OmaCar has, not just the gauges, and the button
+              // should name the place it takes you to.
               PillButton {
-                label: "Open cluster"
+                label: "Control Center"
                 onPressed: {
                   root.openCluster();
                   root.close();
                 }
-              }
-
-              PillButton {
-                label: "Refresh"
-                onPressed: root.refreshNow()
               }
             }
 
@@ -1449,8 +1642,17 @@ Panel {
                 // invented car has to say so before it says anything else --
                 // "simulated" alone is too easy to read past when the numbers
                 // beside it look exactly like a real drive.
+                //
+                // ONE BADGE, NEVER TWO. This and the cyan "simulated" pill at
+                // the end of the Flow were both lit through a demo, saying the
+                // same thing twice in two colours at opposite ends of a row --
+                // half the reason this panel read as busy. They are mutually
+                // exclusive now, and neither exists when neither applies: a
+                // Flow does not position an invisible child, so nothing is
+                // left behind, not a gap and not a spacer.
                 Pill {
-                  label: root.demoing ? "DEMO" : ""
+                  visible: root.demoing
+                  label: "DEMO"
                   tint: root.cAmber
                 }
 
@@ -1467,8 +1669,20 @@ Panel {
                   tint: root.lifeColor(root.svc && root.svc.next ? root.svc.next.life : null)
                 }
 
+                // Not the demo's badge -- that is DEMO, above. This one is for
+                // the other way of ending up with invented numbers: the garage
+                // is on the built-in simulator rather than a car, in the real
+                // tree, with no demo running at all. It is a true thing about
+                // the data on screen and it stays.
+                //
+                // It is suppressed while demoing, because there it was only
+                // ever a second word for the badge already showing. And it is
+                // driven by the rollup, which is blanked the instant the demo
+                // stops (see onDemoingChanged) -- that, not this pill, is why
+                // it used to linger after the demo was switched off.
                 Pill {
-                  label: root.car.simulated ? "simulated" : ""
+                  visible: !root.demoing && root.car.simulated === true
+                  label: "simulated"
                   tint: root.cCyan
                 }
               }

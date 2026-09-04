@@ -9,6 +9,7 @@ writes, and the bar widget reads the cache.
 """
 import json
 import os
+import signal
 import sqlite3
 import sys
 import time
@@ -53,8 +54,15 @@ def open_db():
     db.execute("""CREATE TABLE IF NOT EXISTS samples (
         t REAL PRIMARY KEY, rpm REAL, speed REAL, load REAL, throttle REAL,
         coolant REAL, intake REAL, maf REAL, stft REAL, ltft REAL,
-        timing REAL, lphk REAL, eff REAL)""")
+        timing REAL, lphk REAL, eff REAL, soc REAL)""")
     db.execute("CREATE INDEX IF NOT EXISTS samples_t ON samples(t)")
+    # Databases written before the hybrid column existed -- which on this car
+    # is 34,000 rows of real driving -- must not be thrown away to gain it.
+    # ADD COLUMN is the one schema change SQLite makes in place and in constant
+    # time, and old rows then read NULL, which is the honest value for a period
+    # when nobody was asking the car the question.
+    if "soc" not in {r[1] for r in db.execute("PRAGMA table_info(samples)")}:
+        db.execute("ALTER TABLE samples ADD COLUMN soc REAL")
     db.commit()
     return db
 
@@ -73,7 +81,38 @@ def value_of(result):
     return float(v.magnitude) if hasattr(v, "magnitude") else v
 
 
+def _unwind(_signum, _frame):
+    """Turn a stop signal into the exception the loop already knows about.
+
+    `omacar daemon stop` is `kill "$pid"` -- a plain SIGTERM. Python's default
+    disposition for SIGTERM terminates the interpreter WITHOUT unwinding the
+    stack, so the `finally` at the bottom of main() never ran: live.json was
+    left saying connected=true with the daemon already gone, its pid file was
+    left behind, and the serial port was released without anybody being told.
+
+    Everything downstream then read a dead file as a live car. The bar panel
+    offered "Stop" for fifteen seconds after there was nothing to stop, and
+    then "Reconnect" -- which reads as "the link dropped" -- for a daemon the
+    owner had deliberately shut down.
+
+    Raising KeyboardInterrupt is the whole fix, because the loop already
+    catches it and the finally already does the right thing. Nothing else
+    needed to change.
+    """
+    raise KeyboardInterrupt
+
+
 def main():
+    # Installed before the port is opened, so a stop arriving during a slow
+    # connect still unwinds rather than leaving a half-built daemon behind.
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        try:
+            signal.signal(sig, _unwind)
+        except (ValueError, OSError):
+            # Not the main thread, or a platform without SIGHUP. Losing the
+            # handler is worth less than losing the daemon on startup.
+            pass
+
     # lease=False: this process is the one the lease exists to move aside.
     conn, port, kind = connect.connect(timeout=1.0, fast=True, lease=False)
     import obd
@@ -253,14 +292,21 @@ def main():
             publish(live_payload)
 
             if now - last_row >= 1.0:
+                # Columns named rather than positional. The bare VALUES form
+                # this replaces was correct only for as long as nobody added a
+                # column, and it would have failed silently by writing the new
+                # value into the wrong field the first time somebody did.
                 db.execute(
-                    "INSERT OR REPLACE INTO samples VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT OR REPLACE INTO samples "
+                    "(t, rpm, speed, load, throttle, coolant, intake, maf, "
+                    "stft, ltft, timing, lphk, eff, soc) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (now, sample.get("RPM"), sample.get("SPEED"),
                      sample.get("ENGINE_LOAD"), sample.get("THROTTLE_POS"),
                      sample.get("COOLANT_TEMP"), sample.get("INTAKE_TEMP"),
                      sample.get("MAF"), sample.get("SHORT_FUEL_TRIM_1"),
                      sample.get("LONG_FUEL_TRIM_1"), sample.get("TIMING_ADVANCE"),
-                     lphk, eff))
+                     lphk, eff, sample.get("HYBRID_BATTERY_REMAINING")))
                 db.commit()
                 last_row = now
 
@@ -272,6 +318,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        # This block is why _unwind() below exists. Reaching it is the ONLY
+        # thing that tells the rest of the app the car is gone.
         publish({"connected": False, "status": "stopped", "port": port})
         db.close()
         conn.close()
