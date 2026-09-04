@@ -1,4 +1,4 @@
-// Boot, the rail, the vehicle bar, and the router.
+// Boot, the tab bar, the vehicle bar, and the router.
 //
 // Two clocks. The snapshot — codes, service, a year of driving — changes on
 // the scale of minutes and is polled slowly. The live sample changes five
@@ -19,6 +19,43 @@ import themesView from "./views/themes.js";
 import replayView from "./views/replay.js";
 import resetsView from "./views/resets.js";
 import learnView from "./views/learnview.js";
+import imaView from "./views/ima.js";
+import { createOmaPlay } from "./omaplay/layer.js";
+import { mockSource } from "./omaplay/source.js";
+
+// OmaPlay is a LAYER, not a view.
+//
+// Every other entry in VIEWS is mounted into the stage and destroyed the
+// moment you navigate away, which is right for a page of gauges and wrong
+// here: unmounting OmaPlay would stop the audio, and a design where checking
+// your coolant temperature costs you the podcast is one nobody uses twice.
+//
+// So it is created once, mounted as a sibling of the stage in the same grid
+// cell, and the "view" below only changes its layout mode. `hidden` is not
+// `stopped`, and that distinction is the entire point.
+//
+// Lazily, though: somebody who never opens it should not pay for the source's
+// timers or the gauge rail's subscription to the live store.
+let _omaplay = null;
+
+function omaplay() {
+  if (!_omaplay) {
+    _omaplay = createOmaPlay();
+    _omaplay.mount(document.getElementById("app"));
+    // The mock until the dongle and the driver land, and it says so on screen
+    // in amber. usbSource() throws rather than quietly drawing nothing, so
+    // wiring it in early would fail loudly instead of looking like a bug in
+    // the layer.
+    _omaplay.setSource(mockSource());
+    _omaplay.start();
+  }
+  return _omaplay;
+}
+
+function omaplayView(root, { arg } = {}) {
+  omaplay().setMode(["full", "split", "pip"].includes(arg) ? arg : "split");
+  return () => { if (_omaplay) _omaplay.setMode("hidden"); };
+}
 import garageView from "./views/garage.js";
 import dash from "./views/dash.js";
 import scan from "./views/scan.js";
@@ -46,6 +83,7 @@ const VIEWS = [
   { id: "data", label: "Data", title: "Data lab", mount: data, primary: true, fast: true },
   { id: "tests", label: "Tests", title: "Functional tests", mount: tests, fast: true },
   { id: "health", label: "Health", title: "Readiness and on-board tests", mount: health },
+  { id: "ima", label: "IMA", title: "IMA hybrid system", mount: imaView },
   { id: "concerns", label: "Trends", title: "Areas of concern", mount: concernsView },
   { id: "service", label: "Service", title: "Service schedule", mount: service },
   { id: "resets", label: "Resets", title: "Service resets and functional tests", mount: resetsView },
@@ -58,7 +96,50 @@ const VIEWS = [
   { id: "report", label: "Report", title: "Vehicle report", mount: report },
   { id: "live", label: "Live", title: "Cluster", mount: live, fast: true },
   { id: "drive", label: "Drive", title: "Drive mode", mount: drive, primary: true, fast: true },
+  // Last, so adding it does not renumber the keyboard shortcuts every other
+  // entry already has. `fast` because the gauge rail beside the phone is live.
+  { id: "omaplay", label: "Phone", title: "OmaPlay — your phone, and the car",
+    mount: omaplayView, fast: true },
 ];
+
+// SIX ACROSS THE BOTTOM, THE REST BEHIND "MORE".
+//
+// The rail showed six and hid eleven, and the complaint that killed it was
+// never "I cannot find things" — it was "I spend more time clicking buttons
+// than anything". A vertical strip on the left is the wrong edge of a tablet
+// bolted to a dashboard: you reach it with the hand that should be on the
+// wheel, and you have to look at it to hit a 46px square. The bottom edge is
+// the one a thumb finds without being aimed.
+//
+// Six, not eleven and not three. Six across a 1024px cockpit screen is a
+// 150px target — bigger than anything in the rail ever was — and it is the
+// point where adding one more stops buying a destination and starts buying a
+// row of icons you have to read. The choice of six is a claim about this car
+// and this owner, not a general rule:
+//
+//   hub      the screen the app arrives on when the adapter answers, and the
+//            one the mark at the top of the rail used to reach. With the rail
+//            gone it has to be a tab or it becomes unreachable in one tap.
+//   dash     the workshop overview.
+//   codes    the reason anybody opens a scan tool, and the tab that carries
+//            the fault count.
+//   data     the live PID lab.
+//   drive    the gauges.
+//   advisor  only when AI is on, which is why it sits LAST rather than in the
+//            middle where VIEWS lists it: turning AI off must not shuffle the
+//            five tabs the thumb already knows the position of.
+//
+// Scan lost its place here despite being flagged `primary`, because a full
+// system scan is a thing you decide to do, not a thing you flick between —
+// and the hub already offers it. It is one tap into More, same as the rest.
+//
+// Which is why this is a list of ids and not a `primary` filter: the rail
+// derived its six from that flag, and the flag could not express "hub belongs
+// in navigation" (hub is `car`, not `primary`) or "advisor goes last". The
+// flags are left on VIEWS above — nothing reads them now — rather than stripped
+// out, because the shape of that table is the one thing every view and every
+// plugin agrees on.
+const TAB_IDS = ["hub", "dash", "codes", "data", "drive", "advisor"];
 
 let current = null;
 let unmount = null;
@@ -77,7 +158,12 @@ function go() {
   unmount = null;
   clear(stage);
   current = view;
-  paintRail();
+  // Any navigation closes the sheet, not just a tap on one of its rows: the
+  // number keys, a deep link and auto-drive can all move the app while it is
+  // open, and a menu still sitting over a view you did not choose from it is
+  // the sort of thing that gets tapped by accident.
+  closeMore();
+  paintTabs();
 
   const wrap = h("div.wrap");
   stage.appendChild(wrap);
@@ -107,93 +193,133 @@ function go() {
   }
 }
 
-function paintRail() {
-  const rail = document.getElementById("rail");
-  clear(rail);
-  const car = store.car || {};
+const MORE_ICON = ["M6 12h.1", "M12 12h.1", "M18 12h.1"];
+
+// Lifted out of paintRail when the rail lost its items. It has three consumers
+// now -- the tabs, the sheet, and the aggregate "!" on More -- and a closure
+// over one of them was the reason the badge rules had to be written twice.
+function badge(v, btn, car) {
   const issues = (car.active_faults || []).length;
   const svc = car.service && car.service.due ? car.service.due : 0;
+  if (v.id === "codes" && issues) btn.appendChild(h("span.pip", String(issues)));
+  if (v.id === "service" && svc) btn.appendChild(h("span.pip.warn", String(svc)));
+  if (v.id === "health" && car.readiness && !car.readiness.ready)
+    btn.appendChild(h("span.pip.warn", "!"));
+  return btn;
+}
 
-  // SIX IN THE RAIL, THE REST BEHIND "MORE".
-  //
-  // Seventeen destinations in a vertical strip is not navigation, it is a list
-  // you have to read every time. The six here are the ones reached daily; the
-  // other eleven are reached deliberately, when you already know what you want,
-  // and a menu serves that better than eleven more icons to scan past.
-  //
-  // Nothing is hidden: More holds everything else, with the same badges, and
-  // the current view is promoted into the rail so you can always see where you
-  // are even when you are somewhere secondary.
-  const badge = (v, btn) => {
-    if (v.id === "codes" && issues) btn.appendChild(h("span.pip", String(issues)));
-    if (v.id === "service" && svc) btn.appendChild(h("span.pip.warn", String(svc)));
-    if (v.id === "health" && car.readiness && !car.readiness.ready)
-      btn.appendChild(h("span.pip.warn", "!"));
-    return btn;
-  };
+// Built here rather than declared in app.html. The rail is markup because it
+// is a container the router fills; the bar is markup the router owns outright
+// -- its contents, its overflow and now its settings cluster all come from
+// this file -- and splitting an element's existence from everything that
+// decides what is in it only buys a second place to look.
+//
+// The rail's foot -- Learn, the privacy eye, the units toggle -- moves with
+// it, whole. Those three are settings, not destinations, so they are not tabs;
+// but they were the only place either of the last two lived, and leaving them
+// in a rail that is now display:none would have silently deleted the units
+// switch. Moving the existing elements rather than rebuilding them keeps
+// boot()'s listeners and each button's own painted state exactly as they were.
+function tabsHost() {
+  const existing = document.getElementById("tabs");
+  if (existing) return existing;
+  const bar = h("nav.tabs", { id: "tabs", "aria-label": "Sections" },
+    h("div.tabs-strip"));
+  const foot = document.querySelector(".rail-foot");
+  if (foot) bar.appendChild(foot);
+  document.getElementById("app").appendChild(bar);
+  return bar;
+}
 
-  const item = (v) => badge(v, h("button.rail-item", {
+function paintTabs() {
+  const bar = tabsHost();
+  const strip = bar.querySelector(".tabs-strip");
+  clear(strip);
+  const car = store.car || {};
+
+  const tab = (v) => badge(v, h("button.tab", {
     type: "button",
     title: v.title,
     "aria-current": current && current.id === v.id ? "page" : null,
     onclick: () => { location.hash = "#" + v.id; },
-  }, icon(ICONS[v.id] || ICONS.dash, 19), h("span.lbl", v.label)));
+  }, icon(ICONS[v.id] || ICONS.dash, 21),
+     h("span.tab-l", v.label)), car);
 
-  const shown = VIEWS.filter((v) => v.primary && !(v.ai && !store.aiOn));
-  const rest = VIEWS.filter((v) => !v.primary && !(v.ai && !store.aiOn));
+  const on = (v) => v && !(v.ai && !store.aiOn);
+  const shown = TAB_IDS.map((id) => VIEWS.find((v) => v.id === id)).filter(on);
+  // Everything else, in VIEWS order, which is where plugin screens land: they
+  // are pushed onto VIEWS at boot with no place in TAB_IDS, so they arrive in
+  // More on their own without this having to know they exist.
+  const rest = VIEWS.filter((v) => on(v) && !shown.includes(v));
 
-  // Wherever you are should be visible in the rail, even if it lives in More.
+  for (const v of shown) strip.appendChild(tab(v));
+
+  // WHERE YOU ARE, WHEN WHERE YOU ARE IS NOT A TAB.
+  //
+  // The rail solved this by promoting the current view into the strip. A tab
+  // bar cannot: adding a seventh cell moves the other six, and a control that
+  // moves under your thumb is worse than one you have to look at. So More
+  // takes the active treatment and wears the view's name instead of its own.
+  // The icon stays the three dots, always, because that is the thing the
+  // muscle memory is actually aiming at.
   const here = current && rest.find((v) => v.id === current.id);
-  for (const v of shown) rail.appendChild(item(v));
-  if (here) rail.appendChild(item(here));
-
   const anyBadge = rest.some((v) =>
-    (v.id === "service" && svc) ||
+    (v.id === "service" && car.service && car.service.due) ||
     (v.id === "health" && car.readiness && !car.readiness.ready));
 
-  const more = h("button.rail-item.rail-more", {
+  const more = h("button.tab.tab-more", {
     type: "button",
     title: "Everything else",
     "aria-haspopup": "menu",
-    onclick: (e) => { e.stopPropagation(); openMore(rest, more, badge); },
-  }, icon(["M6 12h.1", "M12 12h.1", "M18 12h.1"], 19), h("span.lbl", "More"));
-  if (anyBadge) more.appendChild(h("span.pip.warn", "!"));
-  rail.appendChild(more);
+    "aria-current": here ? "page" : null,
+    onclick: (e) => { e.stopPropagation(); openMore(rest, car); },
+  }, icon(MORE_ICON, 21), h("span.tab-l", here ? here.label : "More"));
+  if (anyBadge && !here) more.appendChild(h("span.pip.warn", "!"));
+  strip.appendChild(more);
 }
 
-function openMore(rest, anchor, badge) {
-  const existing = document.querySelector(".rail-menu");
-  if (existing) { existing.remove(); return; }
+// A sheet across the width, not a menu beside a button.
+//
+// The rail's version measured the More button's rectangle and then pulled
+// itself back on screen, because More sat low in a vertical strip and the
+// menu always overflowed the bottom. A bar that spans the width has nothing
+// to anchor to and nothing to overflow: the sheet spans it too, sits above it,
+// and lays its rows out in as many columns as the screen affords -- four on a
+// desk, three on a cockpit display -- so everything else is one screen rather
+// than a scroll.
+function openMore(rest, car) {
+  const existing = document.querySelector(".tab-sheet");
+  if (existing) { closeMore(); return; }
 
-  const menu = h("div.rail-menu", { role: "menu" },
-    ...rest.map((v) => badge(v, h("button.rail-menu-item", {
+  const sheet = h("div.tab-sheet", { role: "menu" },
+    h("div.tab-sheet-head", "Everything else"),
+    ...rest.map((v) => badge(v, h("button.tab-sheet-item", {
       type: "button", role: "menuitem",
-      onclick: () => { location.hash = "#" + v.id; menu.remove(); },
-    }, icon(ICONS[v.id] || ICONS.dash, 18),
+      "aria-current": current && current.id === v.id ? "page" : null,
+      onclick: () => { location.hash = "#" + v.id; closeMore(); },
+    }, icon(ICONS[v.id] || ICONS.dash, 20),
        h("span", v.label),
-       h("span.rail-menu-sub", v.title)))));
+       h("span.tab-sheet-sub", v.title)), car)));
 
-  document.body.appendChild(menu);
-  const r = anchor.getBoundingClientRect();
-  // Anchored to the button, then pulled back on screen if it would run off the
-  // bottom -- More sits low in the rail, so on a short window it always would.
-  menu.style.left = (r.right + 8) + "px";
-  const top = Math.min(r.top, window.innerHeight - menu.offsetHeight - 12);
-  menu.style.top = Math.max(8, top) + "px";
+  // A backdrop rather than a document-level click listener. On a touch screen
+  // the first tap outside a menu should close it and do nothing else, and a
+  // capture listener that swallows that tap is indistinguishable from a
+  // control that did not respond.
+  const back = h("div.tab-sheet-back", { onclick: closeMore });
 
-  const close = (e) => {
-    if (menu.contains(e.target)) return;
-    menu.remove();
-    document.removeEventListener("click", close);
-    document.removeEventListener("keydown", esc);
-  };
-  const esc = (e) => { if (e.key === "Escape") close({ target: document.body }); };
-  setTimeout(() => {
-    document.addEventListener("click", close);
-    document.addEventListener("keydown", esc);
-  }, 0);
-  const first = menu.querySelector("button");
+  const app = document.getElementById("app");
+  app.appendChild(back);
+  app.appendChild(sheet);
+  document.addEventListener("keydown", moreEsc);
+  const first = sheet.querySelector("button");
   if (first) first.focus();
+}
+
+function moreEsc(e) { if (e.key === "Escape") closeMore(); }
+
+function closeMore() {
+  document.removeEventListener("keydown", moreEsc);
+  for (const el of document.querySelectorAll(".tab-sheet, .tab-sheet-back")) el.remove();
 }
 
 // James -> James', Alex -> Alex's. Mirrors records.possessive() on the server;
@@ -400,11 +526,24 @@ async function boot() {
   // Learn mode is a local preference, not a server one: it changes nothing
   // about the car or the data, only how much of the app explains itself. No
   // round trip, so it toggles instantly.
-  // The mark at the top of the rail goes to the car dashboard.
+
+  // BEFORE ANYTHING PAINTS.
   //
-  // Seventeen rail items is too many to scan, and "Car" reads as just another
-  // section rather than as the screen everything else hangs off. A logo that
-  // goes home is the one navigation convention every user already has.
+  // Layout is CSS's job, not this file's -- css/nav.css turns the two-column
+  // "rail vbar / rail stage" grid into three stacked rows and hides the rail,
+  // and every one of its overrides is qualified by this attribute so it beats
+  // app.css on specificity rather than on which <link> came first. Set here
+  // rather than in app.html because the bar itself is built in JS, and a shell
+  // that has already reflowed for a bar that never arrives is worse than one
+  // that never reflowed at all.
+  const app = document.getElementById("app");
+  app.dataset.nav = "tabs";
+  tabsHost();
+
+  // The mark at the top of the rail went to the car hub. The hub is the first
+  // tab now, so the mark is one of the two things this change deletes rather
+  // than moves -- but the listener costs nothing and the element is still in
+  // app.html, which this file does not own.
   const hubBtn = document.getElementById("btn-hub");
   if (hubBtn) hubBtn.addEventListener("click", () => { location.hash = "#hub"; });
 
@@ -451,7 +590,7 @@ async function boot() {
 
   window.addEventListener("hashchange", go);
 
-  store.on("car", () => { paintBar(); paintRail(); });
+  store.on("car", () => { paintBar(); paintTabs(); });
   store.on("live", () => { paintBar(); autoDrive(); });
   // The snapshot poller is the only clock running when no view is asking for
   // live samples, so it has to be able to trigger the switch too.
@@ -484,7 +623,7 @@ async function boot() {
         console.warn("plugin view failed to load:", v.id, e);
       }
     }
-    if ((r.views || []).length) paintRail();
+    if ((r.views || []).length) paintTabs();
   } catch { /* no plugins, or the endpoint is unavailable */ }
 
   paintBar();

@@ -24,6 +24,11 @@
 // from what the server derives, which is exactly what the app will wear.
 
 import { h, clear, api, toast } from "../core.js";
+// Type lives on this screen rather than a view of its own. Colour and font are
+// the same question asked twice -- "can I read this through a windscreen" --
+// and splitting them across two destinations means picking a font, walking to
+// the other screen to see it against the palette, and walking back.
+import { fontsPanel } from "./appearance.js";
 
 // Which of the eight to show first, and what to call them. The theme file uses
 // terminal names; a person choosing colours is not thinking about ANSI.
@@ -63,6 +68,10 @@ export default function themes(root, { arg } = {}) {
   let editing = null;    // { id, isNew, body } while the editor is open
   let preview = null;    // the derived palette for `editing`
   let timer = 0;
+  // Built once and moved, not rebuilt. paint() runs on every theme action and
+  // a fresh panel each time would re-fetch the font catalogue and shell out to
+  // fc-list for the privilege of drawing the same six cards again.
+  let typePanel = null;
 
   const wrap = h("div.themes");
   root.appendChild(wrap);
@@ -282,6 +291,9 @@ export default function themes(root, { arg } = {}) {
         + "rather than a blank form — editing something is a better first move "
         + "than inventing something."));
     }
+
+    if (!typePanel) typePanel = fontsPanel();
+    wrap.appendChild(typePanel);
   }
 
   load().then(() => {

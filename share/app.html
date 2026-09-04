@@ -15,7 +15,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OmaCar</title>
 <link rel="icon" href="icon.svg">
+<!-- app.css first: every sheet below builds on its tokens, and two of them
+     (nav.css, omaplay.css) read custom properties it defines. A sheet that
+     loads first sees those as undefined, which does not warn — it silently
+     invalidates any calc() using them, and the rule is dropped. That is
+     exactly how the bottom tab bar shipped unstyled and unnoticed: nav.css
+     was written, was correct, and was never linked here at all. -->
 <link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/nav.css">
+<link rel="stylesheet" href="css/radio.css">
+<link rel="stylesheet" href="css/replay.css">
+<link rel="stylesheet" href="css/car3d.css">
+<!-- After app.css: ima.css completes app.css's tint family and builds on its
+     tokens, so it has nothing to style against if it loads first. -->
+<link rel="stylesheet" href="css/ima.css">
+<link rel="stylesheet" href="css/omaplay.css">
 
 <div id="app" class="app" data-booting="1">
   <nav class="rail" aria-label="Sections">
@@ -54,3 +69,7 @@
 </noscript>
 
 <script type="module" src="js/main.js"></script>
+<!-- Loaded after the app, and separately, because it is not part of any view:
+     it holds a screen wake lock while the car is connected or the radio is
+     playing, so a drive is not punctuated by reaching over to tap a key. -->
+<script type="module" src="js/awake.js"></script>

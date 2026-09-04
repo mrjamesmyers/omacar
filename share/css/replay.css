@@ -1,0 +1,179 @@
+/* Replay — the scope, the ribbon and the instruments.
+   ==================================================
+   The rules for the span picker, the slider, the value chips and the clock
+   already live in app.css under `---- replay ----`. This file is the screen
+   that grew around them: the two stacked canvases, the event ribbon over them,
+   and the row of gauge faces beside them. Nothing here overrides those; where
+   it touches one (.rp-slider's margin, the digital gauge's type size) it says
+   why.
+
+   EVERY COLOUR IS A TOKEN, INCLUDING THE ONES THE CANVAS USES.
+
+   A canvas cannot read a custom property. The usual answer is a hex in the
+   JavaScript, and the usual result is a graph that stops matching the theme the
+   first time anyone changes it — theme.py derives every token through contrast
+   floors, so a literal that looked right under one desktop palette is unreadable
+   under the next. So the trace palette is declared HERE, as --rp-lane-1..6, and
+   replay.js asks the browser what they resolved to by putting `color: var(...)`
+   on a hidden probe and reading it back. The graph's colours are therefore in
+   the cascade like everything else; JavaScript only ever holds a copy that is
+   thrown away on the next repaint.
+
+   The order of the six is deliberate. --info, --ok and --ai are the neutral
+   ones and come first, because a lane is not a verdict: a coolant trace drawn
+   in --bad reads as "the coolant is bad" when all it means is "this is the
+   third thing you asked for". --warn and --bad only appear once you have
+   stacked five and six channels, at which point telling them apart matters more
+   than what they imply. The two mixes in the middle exist because six lanes
+   need six hues and the token set has five.
+
+   READABLE THROUGH A WINDSCREEN AT NOON.
+   The lane labels sit on --faint and the axis clock on --ghost, which is the
+   pairing app.css already uses for chrome you read at a desk. Drive mode lifts
+   both under [data-drive="1"] for sunlight; this screen is not drive mode — you
+   do not scrub a recording at seventy — but it IS opened in a car park with the
+   sun on the panel, so the trace itself is 1.5px rather than 1px, the playhead
+   is --bright (the token that exists precisely because --ink was not enough in
+   daylight), and every number that matters is a DOM node in --ink rather than
+   canvas text. */
+
+.replay { --rp-lane-1: var(--info);
+          --rp-lane-2: color-mix(in srgb, var(--ok) 84%, var(--ink));
+          --rp-lane-3: var(--ai);
+          --rp-lane-4: color-mix(in srgb, var(--info) 55%, var(--ok));
+          --rp-lane-5: var(--warn);
+          --rp-lane-6: var(--bad); }
+
+/* The probe the canvas reads its palette through. Never seen, never laid out,
+   but it has to be IN the document: a detached element resolves no variables. */
+.rp-probe { display: none; }
+
+/* --accent is used by .g-arc-fill and is not declared in app.css's :root — it
+   arrives only from the generated theme sheet or a [data-look] block. An arc
+   gauge under a plain desktop palette therefore drew with no stroke at all.
+   The fallback is scoped to this view rather than fixed globally because
+   app.css is not this file's to edit. */
+.replay .g-arc-fill { stroke: var(--accent, var(--info)); }
+
+/* ---- the head of the console ---- */
+.rp-head { display: flex; align-items: flex-start; gap: 14px; }
+.rp-head > :first-child { flex: 1; min-width: 0; }
+
+.rp-transport { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+                margin-top: 14px; }
+.rp-spacer { flex: 1 1 auto; }
+.rp-hint { font-size: .74rem; color: var(--ghost); white-space: nowrap; }
+@media (max-width: 720px) { .rp-hint { display: none; } }
+
+/* Which list a span came from, said plainly. A trip is segmented by movement, a
+   recording was saved on purpose, a session is a run of recording found in the
+   sample stream — three different claims about the same axis, and the picker
+   was showing them as one undifferentiated list. */
+/* Inline with the times rather than parked in the corner. Absolutely
+   positioned it needed 66px of clearance, and "Session · 1h 59m" then wrapped
+   to two lines to avoid it -- the tag cost more room than it was worth. */
+.rp-span-kind {
+  font-size: .6rem; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ghost); margin-right: .6em;
+}
+.rp-span-kind[data-kind="recording"] { color: var(--ai); }
+.rp-span-kind[data-kind="drive"] { color: var(--info); }
+
+/* ---- the event ribbon ----
+   Markers are DOM, not canvas, and that is the whole reason they are usable: a
+   drawn tick needs hit-testing, a tooltip and a focus ring written by hand,
+   where a <button> arrives with all three. There are never many — the record
+   book holds a few hundred entries across the life of the car and only the ones
+   inside this span are here — so the DOM cost is nothing. */
+.rp-events {
+  position: relative; height: 26px; margin-top: 14px;
+  border-bottom: 1px solid var(--hair);
+}
+.rp-ev {
+  position: absolute; bottom: 0; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; color: var(--dim); max-width: 40%;
+}
+.rp-ev-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--info); border: 1px solid var(--ground);
+}
+/* The stalk down to the axis. Without it a dot floats above the graph and you
+   have to guess which pixel column it is claiming. */
+.rp-ev::after {
+  content: ""; position: absolute; bottom: -1px; left: 50%; width: 1px; height: 6px;
+  background: currentColor; opacity: .5;
+}
+.rp-ev-l {
+  font-size: .62rem; letter-spacing: .04em; max-width: 15ch;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  opacity: 0; transition: opacity .12s;
+}
+/* The label appears on approach. Twenty labels across an hour would be a wall
+   of text over the graph; one under the pointer is a caption. */
+.rp-ev:hover .rp-ev-l, .rp-ev:focus-visible .rp-ev-l { opacity: 1; }
+.rp-ev:hover .rp-ev-dot { transform: scale(1.25); }
+.rp-ev[data-tone="bad"]  .rp-ev-dot { background: var(--bad); }
+.rp-ev[data-tone="warn"] .rp-ev-dot { background: var(--warn); }
+.rp-ev[data-tone="ok"]   .rp-ev-dot { background: var(--ok); }
+/* A cluster wears a ring, so "one thing happened here" and "eleven things
+   happened here" are not the same dot. */
+.rp-ev[data-many="1"] .rp-ev-dot { box-shadow: 0 0 0 2px var(--panel-2), 0 0 0 3px currentColor; }
+
+.rp-ev-none {
+  position: absolute; left: 0; bottom: 4px;
+  font-size: .72rem; color: var(--ghost);
+}
+
+/* ---- the two canvases ----
+   Stacked in one grid cell rather than positioned absolutely, so the stage sizes
+   itself from the layer inside it and there is no height to keep in sync in two
+   places. The overlay never takes a pointer event: the drag-to-scrub handler
+   lives on the stage, and a canvas on top of it would eat every move. */
+.rp-stage {
+  position: relative; margin-top: 4px; touch-action: none; cursor: crosshair;
+  border-radius: 8px; background: var(--panel-2);
+}
+.rp-base, .rp-over {
+  position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+}
+.rp-over { pointer-events: none; }
+/* app.css gives .rp-slider a 12px top margin for the layout it was written for.
+   Under the stage it wants to read as the stage's own edge. */
+.replay .rp-slider { margin-top: 2px; }
+
+/* ---- the instruments ----
+   The faces are gauges.js's, unchanged. What this does is put them in a row at
+   a size that suits a desk: .g-svg is capped at 13.5vh for drive mode, which on
+   a laptop is a gauge the width of a hand, and six of those would be the whole
+   screen. */
+.rp-gauges {
+  display: grid; gap: 10px; margin: 12px 0 2px;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+}
+.rp-gauge {
+  padding: 10px 10px 12px; border-radius: var(--r); text-align: center;
+  border: 1px solid var(--edge); background: var(--panel);
+  color: var(--ink); font: inherit; cursor: pointer;
+}
+.rp-gauge:hover { background: var(--raise); }
+.rp-gk {
+  font-size: .64rem; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--faint);
+}
+.rp-gauge .g-svg { max-height: 104px; }
+/* The digital face is drive mode's, and drive mode's numbers are sized to be
+   read at arm's length through glass. Here they sit four to a row on a desk. */
+.rp-gauge .drive-tile-v { font-size: 1.7rem; line-height: 1.15; margin-top: .1em; }
+.rp-gauge .drive-tile-n { font-size: .7rem; }
+.rp-gauge .g-bar-v { font-size: 1.5rem; }
+.rp-gauge .g-bar { margin-top: .5em; }
+
+.rp-missing {
+  margin-top: 12px; font-size: .78rem; color: var(--ghost); line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-ev-l, .rp-ev-dot { transition: none; }
+}

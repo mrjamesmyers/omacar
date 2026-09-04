@@ -1,0 +1,175 @@
+/* OmaCar — the font layer.
+
+   Loaded AFTER app.css and doing two jobs, both of which exist so app.css does
+   not have to be touched to change what this tool is set in.
+
+   ONE: it declares the three type tokens. app.css had exactly one, --mono, and
+   set `body { font-family: var(--mono) }`, so every word in the tool was
+   monospaced — which is why the prose in it read like a log file rather than
+   like something written for a person. The eleven other places app.css names
+   --mono are all numbers, hex fields and clocks, and every one of those was
+   already the right call, so they are left exactly where they are.
+
+   TWO: it routes those tokens onto the elements app.css already styles. That
+   is the whole reason this file is a second stylesheet rather than a patch:
+   app.css owns size, weight, colour and layout, and nothing in here touches
+   any of them. If this file never loads, app.css stands on its own and the
+   tool is monospaced again — which is a real fallback, not a broken one.
+
+   THE VALUES BELOW ARE THE DEFAULT AND NOT THE CHOICE. lib/fonts.py holds what
+   this machine is actually wearing, and share/js/views/appearance.js writes the
+   chosen stack onto :root as inline custom properties, which beats a stylesheet
+   in the cascade without a reload and without this file being regenerated. The
+   defaults here are the `workshop` stack from lib/fonts.py, kept in step by
+   hand — change one and change the other — so that a first paint, a browser
+   with JavaScript still loading, and a machine with no config file yet all get
+   something deliberate rather than the browser's own idea of a serif.
+
+   --mono is redeclared rather than inherited, and not only for tidiness:
+   app.css asks for "JetBrains Mono", and what is installed on this machine is a
+   family called "JetBrainsMono Nerd Font", which is a different string. CSS
+   family matching is exact, so that first entry has been quietly falling
+   through to the generic this whole time. */
+
+:root {
+  --sans:    "Adwaita Sans", "Inter", "Noto Sans", "Liberation Sans", sans-serif;
+  --display: "Adwaita Sans", "Inter", "Noto Sans", "Liberation Sans", sans-serif;
+  --mono:    "Adwaita Mono", "JetBrainsMono Nerd Font", ui-monospace, monospace;
+}
+
+/* ---- words ---------------------------------------------------------------
+   One rule does nearly all of it. Everything in app.css inherits from body
+   except the eleven explicit var(--mono) sites, and those are the numbers. */
+body { font-family: var(--sans); }
+
+/* Two of those eleven are words rather than figures: the buttons in the theme
+   manager and the field you type a theme's name into. A hex field is a hex
+   field and stays mono; a label reading "Duplicate" is prose. */
+.th-btn,
+.th-name { font-family: var(--sans); }
+
+/* ---- headings ------------------------------------------------------------ */
+.title,
+.hub-title,
+.th-title,
+.th-pv-title,
+.ob-title,
+.learn-title,
+h1, h2, h3 { font-family: var(--display); }
+
+/* ---- the large readouts --------------------------------------------------
+   Everything here is a number big enough to be read at a glance, and they are
+   deliberately all one family: without this rule the hub's vitals and the
+   gauge faces stayed mono while drive mode's tiles followed the body, and the
+   same speed appeared in two different fonts on two screens of the same app.
+
+   font-variant-numeric is repeated on every one of them even where app.css
+   already sets it, because that is the line that stops a readout jittering and
+   it must not depend on which of the two files got there first. Adwaita Sans
+   is exactly why: its digits are proportional by default — the zero is 833
+   units wide and the four is 1265 — so a speed climbing through 44, 45, 46
+   would change width on every sample without this. */
+.stat-tile .v,
+.drive-tile-v,
+.g-bar-v,
+.hub-vital-v,
+.learn-stat-n,
+.th-pv-v {
+  font-family: var(--display);
+  font-variant-numeric: tabular-nums;
+}
+
+/* SVG text, same argument. The value in the middle of a dial is the number the
+   needle is pointing at, and the two disagreeing about which font they are in
+   is the sort of detail that makes an instrument look improvised. */
+.g-value { font-family: var(--display); font-variant-numeric: tabular-nums; }
+
+/* The scale numbers around the outside stay mono. They are 7px, they sit in a
+   ring where even spacing is the whole point, and a proportional 1 next to a
+   proportional 8 at that size reads as a printing error. */
+.g-num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* Small figures that were already mono and are still right: the odometer in
+   the vehicle bar, numeric table columns, the replay clock and its values, and
+   the service dates. Named here only to pin tabular on the ones app.css left
+   without it — a monospace does not need it, and these are not guaranteed to
+   be monospace any more once somebody picks a stack. */
+.vbar .odo,
+.tbl .num,
+.rp-time,
+.rp-v,
+.svc-when { font-variant-numeric: tabular-nums; }
+
+/* ---- the picker ----------------------------------------------------------
+   Deliberately thin. It lives inside the themes view and wears .th-* for
+   everything it can — cards, buttons, headings, the preview surface — because
+   two settings screens that look like two different applications is how a tool
+   starts to feel assembled rather than made. What is here is only what .th-*
+   had no equivalent for. */
+.fnt { display: grid; gap: 14px; }
+
+/* Wider than .th-grid on purpose. A colour swatch reads at 250px; a paragraph
+   set in a font you are judging does not, and the whole point of these cards
+   is that they carry real sentences at real sizes. */
+.fnt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+
+.fnt-card {
+  background: var(--panel); border: 1px solid var(--edge); border-radius: var(--r);
+  padding: 14px; display: grid; gap: 10px; align-content: start;
+}
+.fnt-card.is-active { border-color: var(--accent); }
+/* Missing head family. Amber rather than red: the card still renders, it just
+   is not rendering as the thing it is named after. */
+.fnt-card.is-absent { border-color: color-mix(in srgb, var(--warn) 45%, var(--edge)); }
+
+.fnt-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.fnt-name { font-weight: 600; font-size: 1rem; }
+.fnt-note { font-size: .74rem; color: var(--dim); line-height: 1.5; }
+
+/* The specimen. Not an alphabet: an alphabet proves a font has letters in it
+   and proves nothing about whether a gauge label is readable at sixty. This is
+   a heading, a sentence of the app's own prose, a speed at drive-mode size and
+   a row of the small print, each in the class the app really uses. */
+.fnt-spec {
+  background: var(--ground); border: 1px solid var(--edge); border-radius: 9px;
+  padding: 14px; display: grid; gap: 9px; min-width: 0;
+}
+.fnt-spec-h { font-family: var(--fnt-display); font-size: 1.16rem; font-weight: 600; letter-spacing: -.015em; }
+.fnt-spec-p { font-family: var(--fnt-sans); font-size: .84rem; color: var(--dim); line-height: 1.5; }
+.fnt-spec-row { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+/* 2.6rem is inside drive mode's own clamp(2rem, 7vh, 4.2rem) at a normal
+   window height, so this is the size the number is really read at. */
+.fnt-spec-v {
+  font-family: var(--fnt-display); font-size: 2.6rem; font-weight: 600;
+  line-height: 1.05; font-variant-numeric: tabular-nums; color: var(--bright);
+}
+.fnt-spec-u { font-family: var(--fnt-sans); font-size: .6rem; letter-spacing: .2em;
+              text-transform: uppercase; color: var(--faint); }
+.fnt-spec-m { font-family: var(--fnt-mono); font-size: .8rem; color: var(--faint);
+              font-variant-numeric: tabular-nums; }
+
+/* What the slot will really render as, under the specimen. This is the line
+   that stops the picker lying: it names the family that won, not the family
+   the card is called after. */
+.fnt-slots { display: grid; gap: 2px; font-size: .64rem; color: var(--faint); }
+.fnt-slot { display: flex; gap: 8px; }
+.fnt-slot b { font-weight: 400; color: var(--ghost); min-width: 58px; letter-spacing: .12em;
+              text-transform: uppercase; font-size: .58rem; }
+.fnt-slot.is-absent { color: var(--warn); }
+
+.fnt-install {
+  font-family: var(--mono); font-size: .68rem; color: var(--warn);
+  background: var(--warn-bg); border-radius: 7px; padding: 7px 9px;
+  overflow-wrap: anywhere;
+}
+.fnt-warn { font-size: .7rem; color: var(--warn); line-height: 1.5; }
+.fnt-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.fnt-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.fnt-field { display: grid; gap: 4px; min-width: 0; }
+.fnt-field-k { font-size: .58rem; letter-spacing: .2em; color: var(--faint); text-transform: uppercase; }
+.fnt-field-n { font-size: .62rem; color: var(--faint); line-height: 1.4; }
+.fnt-input {
+  min-width: 0; background: var(--panel-2); border: 1px solid var(--edge-2);
+  color: var(--ink); border-radius: 7px; padding: 7px 8px;
+  font-family: var(--mono); font-size: .76rem;
+}

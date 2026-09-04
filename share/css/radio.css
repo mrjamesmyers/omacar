@@ -1,0 +1,113 @@
+/* The radio's level meter.
+   ==========================
+   Bars that move because the music moves, not because a timer says so. The
+   whole point of this file is that nothing in it invents motion: the heights
+   come from an FFT of the actual stream, and when nothing is playing the bars
+   sit still rather than idling decoratively. A meter that dances to silence is
+   a lie told sixty times a second.
+
+   WHY DOM ELEMENTS AND NOT A CANVAS.
+
+   Two reasons, and the second is the one that decided it.
+
+   The first is cost. This runs on a 2017 dual-core laptop with Intel HD 620
+   graphics, in a car, often on battery. Animating `transform` on a handful of
+   promoted elements is composited on the GPU: no layout, no paint, no main
+   thread work beyond writing a number. A canvas of the same thing repaints
+   every pixel every frame on the CPU.
+
+   The second is the theme. Every colour in this app is DERIVED by lib/theme.py
+   through contrast floors, and arrives as a custom property. A canvas cannot
+   see a custom property -- it would need JavaScript to read the computed value
+   of --accent, cache it, and re-read it on every theme change. That exact
+   pattern is what broke the panel's radio button earlier: a colour that lived
+   in JavaScript instead of in the cascade, and so quietly stopped matching.
+   Bars painted with `color-mix(in srgb, var(--ai) ..., var(--accent))` cannot
+   drift, because they are never copied anywhere. Change the theme and they are
+   already the new colour on the next frame, with no JavaScript involved at
+   all. */
+
+.radio-viz {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 40px;
+  padding: 0 2px;
+  /* Reserved whether or not it is playing, so starting the radio does not
+     shove the track title sideways. Collapsing it would make every play and
+     pause a layout jump on a screen somebody is glancing at while driving. */
+  width: 104px;
+  overflow: hidden;
+  /* Its own compositing layer, so sixty transform writes a second never touch
+     the rest of the player. */
+  contain: strict;
+}
+
+/* Each bar is a full-height element scaled DOWN from its base. Scaling down
+   from 1 rather than up from 0 means the browser rasterises it once at its
+   largest and never has to re-rasterise as it grows -- growing a scaled-up
+   layer is where visualisers go blurry. */
+.radio-viz i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 2px 2px 1px 1px;
+  transform-origin: bottom;
+  transform: scaleY(0.04);
+  /* --t is the bar's position across the spectrum, 0 at the bass end and 1 at
+     the treble end, set once when the bar is built. Low notes come out in the
+     accent colour and the top of the spectrum drifts toward the advisor
+     colour, so the meter reads as one object rather than a row of stripes --
+     and both ends stay whatever the current theme made them. */
+  background: color-mix(in srgb, var(--ai) calc(var(--t, 0) * 100%),
+                        var(--accent, var(--info)));
+  /* No transition. The height IS the signal; easing it would be drawing a
+     smoothed lie over a measurement that is already smoothed correctly, in
+     the analyser, where the smoothing constant is chosen. */
+  will-change: transform;
+}
+
+/* The peak cap: the highest level this band has reached lately, falling back
+   slowly. It is what makes a meter readable at a glance -- the bars themselves
+   move faster than an eye can follow at a traffic light. */
+.radio-viz b {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--bright);
+  opacity: .55;
+  transform: translateY(0);
+  will-change: transform;
+}
+
+.radio-viz span {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+/* Resting. Not playing, or playing with no analyser available -- a flat row at
+   the floor, visibly inert. */
+.radio-viz[data-live="0"] i {
+  transform: scaleY(0.04);
+  background: var(--edge-2);
+}
+.radio-viz[data-live="0"] b { opacity: 0; }
+
+/* Narrow screens already drop the track title (app.css, 520px). The meter goes
+   with it -- on a phone-width window the transport and the volume slider are
+   the whole point and there is no room to spend on decoration. */
+@media (max-width: 620px) {
+  .radio-viz { display: none; }
+}
+
+/* Somebody who has asked the system for less motion has asked for exactly
+   this. The radio still plays; it simply stops drawing. */
+@media (prefers-reduced-motion: reduce) {
+  .radio-viz { display: none; }
+}
