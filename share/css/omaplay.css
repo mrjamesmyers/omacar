@@ -1,0 +1,291 @@
+/* OmaPlay — the chrome around a screen we do not own.
+   =================================================
+
+   Everything here styles what surrounds the phone's video, because the video
+   itself is somebody else's interface arriving as pixels and no stylesheet
+   reaches inside it. That is the boundary, and pretending otherwise is how a
+   project ends up shipping a fake of Apple's UI.
+
+   So every colour below is a theme token. The one rectangle that keeps its own
+   look is the canvas, and it is framed rather than tinted — a filter over live
+   navigation would be actively dangerous. */
+
+/* IT SITS IN THE STAGE CELL, NOT OVER THE WHOLE APP.
+   main.js calls clear(stage) on every navigation, so the layer cannot live
+   inside the stage — it would be destroyed the first time you looked at a
+   gauge, which is the exact thing a layer exists to prevent. So it is a
+   sibling placed in the same grid area, which works under both the old rail
+   layout and the new tab layout because both name that area `stage`.
+
+   Covering the whole app instead would paint over the vehicle bar and the tab
+   strip, and a full-screen phone display you cannot navigate away from is a
+   trap rather than a feature. */
+.omaplay {
+  grid-area: stage;
+  position: relative;
+  z-index: 4;
+  display: grid;
+  gap: var(--gap, 14px);
+  background: var(--ground);
+  padding: var(--gap, 14px);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  /* Contained so a repaint of the phone screen never invalidates the app
+     behind it. This surface updates at 20fps for hours. */
+  contain: strict;
+}
+
+/* THE SAME HEIGHT CAP .stage GETS, AND FOR THE SAME REASON.
+   nav.css caps .stage so the tab strip has somewhere to be. This layer is a
+   SIBLING in that grid cell, not a child of the stage, so it inherited none of
+   that — it grew the 1fr row to fit an 839x774 canvas and pushed the tab bar
+   clean off the bottom of the screen. A phone display you cannot navigate away
+   from is a trap, and it took a screenshot to see it: every DOM check passed,
+   because the tab bar was present and correct and simply below the fold.
+   Kept in step with nav.css by hand; the two calcs must match. */
+.app[data-nav="tabs"] .omaplay {
+  max-height: calc(100vh  - var(--vbar) - var(--tabs) - var(--tabs-safe));
+  max-height: calc(100dvh - var(--vbar) - var(--tabs) - var(--tabs-safe));
+}
+
+/* The preview page has no app grid to sit in, so there it fills its host.
+   Scoped to the page rather than left as the default, because the default
+   being "cover everything" is what would paint over the tab bar in the app. */
+body > #host > .omaplay { position: absolute; inset: 0; }
+
+.omaplay[hidden] { display: none !important; }
+
+/* ---- layout modes ---- */
+
+/* Edge to edge: the side panel is not merely hidden, it is out of the grid,
+   so the video gets the whole box rather than a column of empty space. */
+.omaplay[data-mode="full"] { grid-template-columns: 1fr; }
+.omaplay[data-mode="full"] .op-side { display: none; }
+
+/* Split: navigation on the larger part, the car beside it. minmax with a
+   floor stops the side column collapsing to unreadable on a narrow window. */
+.omaplay[data-mode="split"] {
+  grid-template-columns: minmax(0, 2.2fr) minmax(240px, 1fr);
+}
+
+/* Picture in picture: the app owns the screen and the phone sits in a corner,
+   small but still live. Pointer events stay on, because the whole point is
+   being able to skip a track without changing mode. */
+.omaplay[data-mode="pip"] {
+  grid-template-columns: 1fr;
+  pointer-events: none;
+}
+.omaplay[data-mode="pip"] .op-stage {
+  position: absolute;
+  right: var(--gap, 14px);
+  bottom: var(--gap, 14px);
+  width: min(38%, 420px);
+  aspect-ratio: 5 / 4;
+  pointer-events: auto;
+  box-shadow: 0 10px 34px rgb(0 0 0 / .45);
+}
+.omaplay[data-mode="pip"] .op-side { display: none; }
+
+/* Car alerts are NOT drawn inside the picture-in-picture thumbnail. They are
+   sized for a full stage, and squeezed into a 420px box they overflow it and
+   become unreadable — which was visible the first time this mode was
+   rendered. In pip the app itself is in front, so OmaCar's own screens are
+   already showing the alert properly; drawing a clipped second copy over the
+   phone would be worse than not drawing one. */
+.omaplay[data-mode="pip"] .op-overlays { display: none; }
+
+/* ---- the screen ---- */
+
+.op-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  border-radius: var(--r);
+  overflow: hidden;
+  border: 1px solid var(--edge);
+  background: #000;
+}
+
+.op-screen {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* The phone renders to the size we ask for, so the canvas should already be
+     the right shape. `contain` rather than `fill` means a mismatch shows as a
+     letterbox we can SEE and fix, instead of a subtly stretched map. */
+  object-fit: contain;
+}
+
+/* The app the phone says is playing. Sits on the video, so it carries its own
+   backing rather than trusting whatever is behind it. */
+.op-badge {
+  position: absolute;
+  left: 10px; top: 10px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: .78rem;
+  letter-spacing: .02em;
+  color: var(--bright);
+  background: rgb(0 0 0 / .55);
+  backdrop-filter: blur(6px);
+}
+.op-badge[hidden] { display: none; }
+
+/* ---- the mock, marked as loudly as demo mode ---- */
+
+.omaplay[data-mock="1"] .op-stage {
+  border-color: var(--warn);
+  box-shadow: inset 0 0 0 1px var(--warn);
+}
+.omaplay[data-mock="1"] .op-stage::after {
+  content: "MOCK — not a phone";
+  position: absolute;
+  right: 10px; top: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: .74rem;
+  font-weight: 650;
+  letter-spacing: .04em;
+  color: var(--on-warn, #1A1305);
+  background: var(--warn);
+}
+
+/* ---- car alerts, drawn over the phone ---- */
+
+.op-overlays {
+  position: absolute;
+  left: 10px; right: 10px; bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.op-overlays[hidden] { display: none; }
+
+.op-alert {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgb(0 0 0 / .68);
+  backdrop-filter: blur(8px);
+  border-left: 3px solid var(--info);
+  color: var(--bright);
+}
+.op-alert.warn { border-left-color: var(--warn); }
+.op-alert.bad  { border-left-color: var(--bad); }
+.op-alert-t { font-weight: 650; font-size: .98rem; }
+.op-alert-b { font-size: .88rem; color: var(--bright-2); margin-top: 2px; }
+
+/* ---- now playing, which IS ours to design ---- */
+
+.op-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.op-np {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: var(--r);
+  min-width: 0;
+}
+
+.op-art {
+  flex: none;
+  width: 84px; height: 84px;
+  border-radius: 10px;
+  background: var(--raise);
+  overflow: hidden;
+}
+.op-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* No artwork is a plain tile, not a guessed-at placeholder icon. */
+.op-art[data-has="0"] { border: 1px solid var(--edge); }
+
+.op-np-text { min-width: 0; flex: 1 1 auto; }
+
+.op-title {
+  font-size: 1.05rem; font-weight: 620; color: var(--bright);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.op-sub {
+  font-size: .9rem; color: var(--bright-2); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.op-np-time {
+  display: flex; align-items: center; gap: 8px; margin-top: 10px;
+}
+.op-t {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;   /* a clock that jitters is a clock nobody trusts */
+  font-size: .78rem;
+  color: var(--faint);
+  flex: none;
+}
+.op-bar {
+  flex: 1 1 auto;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--track);
+  overflow: hidden;
+}
+.op-bar i {
+  display: block; height: 100%;
+  background: var(--accent, var(--info));
+  /* One second between updates, so easing across it reads as motion rather
+     than as the jump it really is. */
+  transition: width .95s linear;
+}
+
+/* ---- the car, beside the phone ---- */
+
+.op-rail {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  min-height: 0;
+}
+
+.op-rail-tile {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: var(--r);
+  padding: 10px 10px 6px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.op-rail-k {
+  font-family: var(--mono);
+  font-size: .7rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* A car that has stopped answering must LOOK like one. Four gauges frozen at
+   their last reading are indistinguishable from a car holding a steady 60. */
+.op-rail[data-live="0"] { opacity: .42; }
+.op-rail[data-live="0"] .op-rail-tile { border-style: dashed; }
+
+.op-status {
+  font-size: .86rem;
+  color: var(--dim);
+  padding: 0 2px;
+}
+.omaplay[data-state="failed"] .op-status { color: var(--bad); }
+
+@media (max-width: 760px) {
+  /* Below this the side column is doing more harm than good — the phone
+     screen is the thing you came for. */
+  .omaplay[data-mode="split"] { grid-template-columns: 1fr; }
+  .omaplay[data-mode="split"] .op-side { display: none; }
+}

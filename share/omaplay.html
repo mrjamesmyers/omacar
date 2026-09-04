@@ -1,0 +1,94 @@
+<!doctype html>
+<!-- OmaPlay — preview.
+     A standalone page while the layer is being built, for the same reason the
+     workshop has doc/cluster-original.html: the thing needs looking at before
+     it has a home in the navigation, and a temporary probe deleted after every
+     screenshot is a test you cannot re-run.
+
+     It mounts the real layer with the real mock source, so what is on this page
+     is what will be in the app. When OmaPlay gets its nav entry this page stays
+     as the manual test harness for the layout modes, which are awkward to reach
+     from inside the app once it is wired in. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OmaPlay — preview</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/omaplay.css">
+<style>
+  html, body { margin: 0; height: 100%; background: var(--ground); }
+  body { display: flex; flex-direction: column; font-family: system-ui, sans-serif; }
+  .bar {
+    flex: none; display: flex; gap: 8px; align-items: center;
+    padding: 10px 14px; border-bottom: 1px solid var(--edge);
+    background: var(--panel); color: var(--dim); font-size: .86rem;
+  }
+  .bar b { color: var(--bright); font-weight: 620; margin-right: 6px; }
+  .bar button {
+    background: var(--raise); color: var(--ink);
+    border: 1px solid var(--edge); border-radius: 8px;
+    padding: 7px 13px; cursor: pointer; font-size: .88rem;
+  }
+  .bar button[aria-pressed="true"] {
+    border-color: var(--accent, var(--info));
+    color: var(--bright);
+  }
+  .bar .sp { flex: 1; }
+  #host { position: relative; flex: 1 1 auto; min-height: 0; }
+</style>
+
+<div class="bar">
+  <b>OmaPlay</b>
+  <span>layout</span>
+  <button data-mode="split">Split</button>
+  <button data-mode="full">Full</button>
+  <button data-mode="pip">Corner</button>
+  <button data-mode="hidden">Hidden</button>
+  <span class="sp"></span>
+  <button id="alert">Fire a car alert</button>
+  <span id="note">mock source — no dongle needed</span>
+</div>
+<div id="host"></div>
+
+<script type="module">
+  import { createOmaPlay } from "./js/omaplay/layer.js";
+  import { mockSource } from "./js/omaplay/source.js";
+  import { store } from "./js/core.js";
+
+  const op = createOmaPlay();
+  op.mount(document.getElementById("host"));
+  op.setSource(mockSource());
+  op.setMode(location.hash.slice(1) || "split");
+  op.start();
+
+  // The gauges read the live store, which on this page means whatever the
+  // real API is serving. With no car connected they sit dimmed and dashed,
+  // which is the state worth being able to look at.
+  store.refreshLive?.();
+  setInterval(() => store.refreshLive?.(), 2000);
+
+  for (const b of document.querySelectorAll("[data-mode]")) {
+    b.onclick = () => {
+      op.setMode(b.dataset.mode);
+      location.hash = b.dataset.mode;
+      sync();
+    };
+  }
+  function sync() {
+    for (const b of document.querySelectorAll("[data-mode]")) {
+      b.setAttribute("aria-pressed", b.dataset.mode === op.mode ? "true" : "false");
+    }
+  }
+  sync();
+
+  let on = false;
+  document.getElementById("alert").onclick = () => {
+    on = !on;
+    if (on) {
+      op.alert({ kind: "coolant_hot", urgency: "critical",
+                 title: "Engine running hot",
+                 body: "Coolant at 106 °C. Stop somewhere safe before it boils." });
+    } else {
+      op.clearAlert("coolant_hot");
+    }
+  };
+</script>

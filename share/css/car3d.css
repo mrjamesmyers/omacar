@@ -1,0 +1,110 @@
+/* The car viewer's box. Everything visual about the CAR comes from the model
+   and the light rig in car3d.js; everything here is about the hole it sits in.
+
+   THE HOST OWNS THE SIZE, NOT THIS FILE.
+
+   `.car3d` is sized by whatever card mounts it, because a car on the hub, a car
+   in the vehicle bar and a car in a print report are three different heights
+   and none of them is a property of the car. All this file guarantees is that
+   the box has a definite height before the first frame -- a canvas measured
+   inside a zero-height parent renders one pixel tall and then never resizes,
+   which is a long afternoon for a one-line cause. Hence the aspect-ratio and
+   the min-height: they are a floor, not a design. */
+
+.car3d {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 140px;
+  overflow: hidden;
+  /* The silhouette inherits this, so the flat car follows the theme and every
+     look with it. --dim rather than --ink: this is the object being talked
+     about, not a heading, and at --ink it competes with the numbers next to
+     it. */
+  color: var(--dim);
+}
+
+/* No background of its own. The canvas is transparent on purpose (see the
+   note in car3d.js about themes being swapped live under a running page), so
+   whatever card this sits in shows through and stays correct when lib/theme.py
+   regenerates the palette. Painting a background here would undo that. */
+.car3d-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* Touch panning must not be stolen by the drag-to-turn handler: this box can
+     be most of a phone screen in the car, and a car you cannot scroll past is
+     worse than a car you cannot spin. Horizontal drag turns it, vertical drag
+     scrolls the page. */
+  touch-action: pan-y;
+  cursor: grab;
+  /* The first frame arrives after a fetch, a parse and a GPU upload. Fading in
+     over that hides the single black frame between "canvas exists" and "canvas
+     has a car in it". */
+  animation: car3d-in 260ms ease-out both;
+}
+
+.car3d-canvas:active { cursor: grabbing; }
+
+@keyframes car3d-in { from { opacity: 0 } to { opacity: 1 } }
+
+/* The flat car: the fallback, and a legitimate picture in its own right.
+   It is the same artwork plugin/Car.qml draws, so a machine with no model
+   file looks like the rest of the application rather than looking broken. */
+.car3d-flat {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10% 8%;
+}
+
+.car3d-svg {
+  width: 100%;
+  height: 100%;
+  /* No object-fit here, deliberately: it does nothing on an inline <svg>,
+     which is not a replaced element. The containing behaviour comes free from
+     SVG's own default preserveAspectRatio of xMidYMid meet, so the 3.3:1
+     artwork is fitted and centred in whatever box it is given rather than
+     stretched -- which is the same choice Car.qml makes, for the reason its
+     header records: a square box otherwise leaves a short car floating in it. */
+}
+
+/* view-box, not the fill-box default. Each wheel group carries a
+   transform-origin in viewBox coordinates (17.001 57.152, and so on for the
+   rear), and under fill-box those numbers would be measured against that
+   path's own bounding box instead -- the spokes would orbit a point off the
+   artwork rather than turning on their hubs. Car.qml hit the identical bug
+   from the other direction, in Qt's transform ordering, and its comment is
+   worth reading before touching either. */
+.car3d-wheel { transform-box: view-box; }
+
+.car3d-wheel.is-turning {
+  animation: car3d-roll 2.4s linear infinite;
+}
+
+@keyframes car3d-roll { to { transform: rotate(360deg) } }
+
+/* Reduced motion stops the wheels here as well as in JS. The JS check runs
+   once at mount; this one keeps holding if the preference changes while the
+   page is open, which on a phone handed between a driver and a passenger is
+   not hypothetical. */
+@media (prefers-reduced-motion: reduce) {
+  .car3d-wheel.is-turning { animation: none; }
+  .car3d-canvas { animation: none; }
+}
+
+/* Print.
+   A WebGL canvas prints blank unless the context was created with
+   preserveDrawingBuffer, and that option costs a full-frame copy on every
+   frame on exactly the integrated GPU this has to survive on. Paying that all
+   day for a page that is printed twice a year is the wrong trade, so the
+   viewer is simply omitted from print -- the same treatment app.css gives the
+   rail and the toasts, and for the same reason: it is chrome, and the report
+   is about the car's data. */
+@media print {
+  .car3d { display: none; }
+}
