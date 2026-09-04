@@ -1,0 +1,159 @@
+/* The IMA screen.
+ *
+ * Every colour here is a theme token. Nothing in this file names a hex value,
+ * because a custom theme derived through lib/theme.py's contrast floors is the
+ * only thing standing between a palette that looks good on a desk and one that
+ * is illegible through a windscreen -- and a hardcoded colour sails straight
+ * past all of it.
+ *
+ * The layout has one job the other screens do not: an absence has to read as
+ * deliberate rather than as a bug. A quantity nobody has discovered gets a
+ * dash in the same slot a reading would occupy, at the same size, in --ghost
+ * rather than in --ink. It should look like a labelled empty shelf, not like a
+ * number that failed to load. */
+
+.ima { display: grid; gap: 22px; }
+
+/* app.css tints a card ok, warn, bad or ai. `candidate` is the fourth state
+   this screen has to paint and it maps to --info, which had no card tint --
+   so the one missing member of that family is defined here rather than by
+   reaching for a colour outside the palette. */
+.card.tint-info {
+  border-color: color-mix(in srgb, var(--info) 34%, transparent);
+  background: linear-gradient(180deg, var(--info-bg), transparent 62%), var(--panel);
+}
+
+/* ------------------------------------------------------------- the register */
+
+.ima-q { display: flex; flex-direction: column; }
+.ima-q-label { font-weight: 600; font-size: .82rem; }
+
+/* The empty slot. Same height as the .stat-tile a real reading gets, so a card
+   with a value and a card without do not jump against each other in the grid. */
+.ima-q-dash {
+  margin-top: 10px;
+  font-size: 1.7rem; font-weight: 600; line-height: 1.25;
+  color: var(--ghost); letter-spacing: -.02em;
+}
+.ima-q-unit {
+  font-size: .62rem; color: var(--faint); font-weight: 400;
+  margin-left: 6px; letter-spacing: .08em;
+}
+
+.ima-q-about { margin-top: 8px; }
+.ima-q-note { margin-top: 8px; font-size: .78rem; }
+.ima-q-next { margin-top: 6px; color: var(--dim); }
+
+.ima-legend { display: grid; gap: 10px; }
+.ima-legend-grid { display: grid; gap: 8px; }
+.ima-legend-row {
+  display: grid; grid-template-columns: 130px 1fr; gap: 12px;
+  align-items: baseline;
+}
+@media (max-width: 660px) {
+  .ima-legend-row { grid-template-columns: 1fr; gap: 3px; }
+}
+
+.ima-cand { display: grid; gap: 10px; }
+.ima-cand-list { display: grid; gap: 10px; }
+.ima-cand-row {
+  padding: 10px 12px; border: 1px solid var(--edge); border-radius: 8px;
+  background: var(--panel-2); display: grid; gap: 5px;
+}
+
+/* --------------------------------------------------------------- catalogues */
+
+/* app.css uses the mono family for the whole body already, so this is about
+   weight and colour rather than about the typeface: an address or a code has
+   to be pickable out of a sentence at a glance. */
+.ima-mono {
+  font-family: var(--mono); font-weight: 600; font-size: .78rem;
+  color: var(--ink); letter-spacing: .02em;
+}
+.ima-mod-label { color: var(--dim); font-size: .74rem; }
+
+.ima-group { margin-top: 14px; }
+.ima-group-head {
+  display: flex; align-items: baseline; gap: 10px;
+  font-size: .6rem; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--faint); padding-bottom: 6px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.ima-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+
+/* A code the app cannot name and a code it can must not look the same. The
+   sourced one gets ink and an edge; the unnamed one stays quiet. That contrast
+   IS the honesty -- sixty-odd quiet chips are the visible admission that this
+   repo has no Honda service source for them. */
+.ima-chip {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 4px 8px; border-radius: 6px;
+  background: var(--track); color: var(--dim);
+  border: 1px solid transparent;
+  font-size: .68rem; letter-spacing: .03em; cursor: help;
+}
+.ima-chip.sourced {
+  color: var(--ink); border-color: var(--edge-2); background: var(--raise);
+}
+.ima-chip-c { font-weight: 600; }
+.ima-chip-f {
+  font-size: .58rem; color: var(--faint); letter-spacing: .06em;
+}
+
+/* ----------------------------------------------------------------- flagged */
+
+.ima-flags { display: grid; gap: 8px; margin-top: 12px; }
+.ima-flag {
+  display: grid; gap: 4px;
+  padding: 9px 11px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--edge);
+}
+
+/* ------------------------------------------------------------------ trends */
+
+.ima-spark { margin-top: 10px; height: 44px; }
+
+/* The card that says there is no history. Dashed rather than solid: a solid
+   card reads as a panel that failed to populate, a dashed one reads as a space
+   reserved on purpose. */
+.ima-empty {
+  border-style: dashed; border-color: var(--edge-2); background: transparent;
+}
+
+/* --------------------------------------------------------------- discovery */
+
+.ima-rows { display: grid; gap: 10px; margin-top: 10px; }
+.ima-row {
+  display: grid; gap: 4px; padding: 9px 0;
+  border-bottom: 1px solid var(--hair);
+}
+.ima-row:last-child { border-bottom: 0; padding-bottom: 0; }
+
+.ima-cmd {
+  margin-top: 12px; padding: 10px 12px;
+  border: 1px solid var(--edge-2); border-radius: 8px;
+  background: var(--ground); display: grid; gap: 6px;
+}
+.ima-cmd-text {
+  font-family: var(--mono); font-size: .7rem; color: var(--ink);
+  /* A sweep command is long and must never be silently cut off: half a
+     --headers list pasted into a terminal is a different sweep. */
+  white-space: pre-wrap; word-break: break-word; min-width: 0; flex: 1;
+}
+.ima-cmd-safety { color: var(--warn); }
+
+@media print {
+  /* The command boxes are the actionable part of this page and the reason
+     somebody would print it at all, so they keep their frame on paper. No
+     colour is named here: app.css already lightens every border for print,
+     and a hex in this file would be the one value a custom theme could not
+     reach. */
+  .ima-cmd { background: transparent; }
+}
+
+/* The hoisted "why these are all undiscovered" block. It sits under the grid
+   of cards it explains, so the names it covers have to read as a caption of
+   that grid rather than as a new list. */
+.ima-gap { display: grid; gap: 0; }
+.ima-gap-names { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }

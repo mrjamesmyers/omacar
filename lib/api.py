@@ -17,6 +17,8 @@ what the car said.
     GET  /api/theme             the active palette, mapped to our roles
     GET  /api/themes            themes you have built, and which is active
     POST /api/themes            save, delete or select one
+    GET  /api/fonts             the font stacks on offer, and which is worn
+    POST /api/fonts             select one, or save your own
     GET  /api/concerns          what is trending somewhere it should not
     GET  /api/snapshots         states captured by hand or by the watchdog
     GET  /api/vehicles          the garage
@@ -53,6 +55,7 @@ import uuid
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import book     # noqa: E402
 import concerns  # noqa: E402
+import fonts    # noqa: E402
 import photos   # noqa: E402
 import garage   # noqa: E402
 import records  # noqa: E402
@@ -619,6 +622,14 @@ def handle_get(path, query):
         return 200, {"car": discover.summary(),
                      "write_armed": writelib.is_armed(),
                      "write_until": writelib.armed_until()}
+    if path == "/api/ima":
+        # Imported here rather than at module scope for the same reason
+        # discover is: this handler runs under the system interpreter, and
+        # ima.py deliberately touches no serial library at all. summary() is
+        # contracted never to raise -- it returns a summary carrying an "error"
+        # key rather than letting a hand-edited drive log become a 500.
+        import ima
+        return 200, ima.summary()
     if path == "/api/theme":
         # The mtime rides along so the app can re-apply on a theme change
         # without re-parsing anything it already has.
@@ -654,6 +665,14 @@ def handle_get(path, query):
             # the "follow Omarchy" option.
             "desktop_palette": theme.palette(),
         }
+    if path == "/api/fonts":
+        # Re-stamped on every read rather than only on a save. `omacar
+        # panel-cache` rewrites the panel's rollup wholesale from
+        # records.snapshot(), which drops the fonts key -- so this is what puts
+        # it back, on the next occasion anything asks. It is a compare before a
+        # write, so a page open on a timer is not rewriting the file.
+        fonts.stamp_panel_cache()
+        return 200, fonts.catalogue()
     return None
 
 
@@ -700,6 +719,17 @@ def handle_post(path, body):
                      "themes": out, "seed": themes.SEED,
                      "colours": list(themes.COLOURS),
                      "desktop_palette": theme.palette()}
+    if path == "/api/fonts":
+        what = data.get("action")
+        if what == "select":
+            store, err = fonts.select(str(data.get("id") or fonts.DEFAULT))
+        elif what == "custom":
+            store, err = fonts.put_custom(data.get("stack") or {})
+        else:
+            return 400, {"error": "action must be select or custom"}
+        if err:
+            return 400, {"error": err}
+        return 200, fonts.catalogue()
     if path == "/api/snapshot":
         return 200, concerns.capture(
             reason=data.get("reason") or "manual",
