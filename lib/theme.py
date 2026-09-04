@@ -128,6 +128,12 @@ def readable(colour, on, floor=3.4):
 #
 # Nine decisions instead of twenty-nine, and the result is legible by
 # construction.
+# How many chart series a theme derives. Six because that is what replay.css
+# already declares as --rp-lane-1..6, and because beyond about six a reader
+# stops telling lines apart by colour whatever the numbers say -- the answer
+# past that is small multiples or an "other" bucket, not a seventh hue.
+SERIES_N = 6
+
 SOURCE_KEYS = ("mode", "background", "foreground", "accent",
                "red", "green", "yellow", "blue", "magenta")
 
@@ -310,6 +316,41 @@ def palette_of(raw):
         dark_ink, light_ink = "#0A0A0C", "#FFFFFF"
         out["on-" + k] = (dark_ink if contrast(v, dark_ink) >= contrast(v, light_ink)
                           else light_ink)
+
+    # ---- colours a CHART can tell apart --------------------------------------
+    #
+    # Everything above is derived against a CONTRAST floor: legible on the
+    # surface behind it. That is the wrong invariant for a chart with more than
+    # one line, which needs its colours to be distinguishable from EACH OTHER,
+    # and the two are independent. Measured on this app's own live theme, the
+    # six replay traces failed badly: bad vs warn came out at ΔE 3.9 for a
+    # red-green colourblind reader and 7.7 for everyone else -- two of six
+    # lines that nobody could follow.
+    #
+    # So they are derived too, per theme, seeded from the theme's own colours
+    # in a fixed order so identity survives wherever the numbers allow. A
+    # palette that was already fine comes out unchanged; one that was not gets
+    # walked apart until it clears the floor.
+    #
+    # Wrapped because a failure here must cost the chart colours and nothing
+    # else. The rest of the palette is what the whole app is painted with, and
+    # it is not going to go missing over a colour-space edge case.
+    try:
+        import separation
+        seeds = [out["accent"], sem.get("ok"), sem.get("ai"), sem.get("info"),
+                 sem.get("warn"), sem.get("bad")]
+        seeds = [s for s in seeds if s]
+        for i, colour in enumerate(separation.series(seeds, SERIES_N, panel,
+                                                     light=light), 1):
+            out["series-%d" % i] = colour
+    except Exception:
+        # The theme's own semantics, unseparated. Worse than derived, better
+        # than a chart with no colours at all -- and audit() will say so.
+        for i, colour in enumerate(
+                [out["accent"], sem.get("ok"), sem.get("ai"), sem.get("info"),
+                 sem.get("warn"), sem.get("bad")][:SERIES_N], 1):
+            if colour:
+                out["series-%d" % i] = colour
     return out
 
 
