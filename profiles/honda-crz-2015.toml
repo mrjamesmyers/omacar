@@ -22,12 +22,72 @@ description = "2015 Honda CR-Z (hybrid)"
 protocol = "ISO 15765-4 (CAN 29/500)"
 years = [2011, 2016]
 vin_prefix = "JHMZF1D4"   # model/year only -- never a whole VIN
+engine = "1.5 L i-VTEC + IMA"
+drivetrain = "FWD hybrid, CVT"
+# Physical facts, so anything modelling this car uses ITS numbers.
+mass_kg = 1250.0
+power_kw = 97.0
+tank_l = 40.0
+displacement_l = 1.5
+redline = 6300
 
 [meta]
 created = "2026-09-02T07:01:47Z"
-updated = "2026-09-02T07:46:45Z"
+updated = "2026-09-03T21:24:53Z"
 contributors = ["mrjamesmyers"]
-checksum = "sha256:ae68d979217c37d40c812598e86ef1d4bd1ee3505a88aab91a2663c0cb494620"   # integrity, NOT a signature
+checksum = "sha256:581c7b44e76b949de3c1b0bde3ae2b26562bc79fde2c42cf2c7cc4e4ffe991ec"   # integrity, NOT a signature
+
+# ---- what this car is made of ----------------------------------------------
+#
+# Modules that answer on this car, with the job each one does. `role` is what
+# the app switches on: an `ima` screen looks for hybrid-battery and
+# hybrid-motor rather than for two hardcoded Honda headers.
+#
+# confidence uses the same four states as the pid entries above. `validated`
+# here means the module was seen to answer on a real car.
+
+[[module]]
+header = "18DA10F1"
+label = "engine"
+role = "engine"
+confidence = "validated"
+
+[[module]]
+header = "18DA03F1"
+label = "hybrid / battery"
+role = "hybrid-battery"
+confidence = "validated"
+
+[[module]]
+header = "18DA04F1"
+label = "hybrid / motor"
+role = "hybrid-motor"
+confidence = "validated"
+
+[[module]]
+header = "18DA0EF1"
+label = "gateway / other"
+role = "gateway"
+confidence = "validated"
+
+[[module]]
+header = "18DA01F1"
+label = "body"
+role = "body"
+confidence = "candidate"
+
+# What is worth asking for, and how often. Order is a statement about priority
+# on a link that can only carry so many requests a second.
+[poll]
+fast = ["RPM", "SPEED", "ENGINE_LOAD", "THROTTLE_POS"]
+mid = ["SHORT_FUEL_TRIM_1", "LONG_FUEL_TRIM_1", "TIMING_ADVANCE", "MAF"]
+slow = ["COOLANT_TEMP", "INTAKE_TEMP", "RUN_TIME", "FUEL_LEVEL",
+        "CONTROL_MODULE_VOLTAGE", "AMBIANT_AIR_TEMP", "HYBRID_BATTERY_REMAINING"]
+
+# Optional screens this car can actually fill. A claim about the CAR, not
+# about what OmaCar has managed to read yet.
+[screens]
+ima = true
 
 [[pid]]
 id = "18da03f1_22f181"

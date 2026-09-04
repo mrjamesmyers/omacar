@@ -153,11 +153,43 @@ GREEN, YELLOW = "\033[32m", "\033[33m"
 DEFAULT_HEADERS = ["18DA10F1", "18DA03F1", "18DA04F1", "18DA0EF1"]
 
 
+def headers_for(vin=None, slug=None):
+    """The modules worth sweeping for faults on THIS car.
+
+    Four Honda addresses are the right answer for the car this was written on
+    and a waste of four round trips on anything else. The profile's module
+    list is the real answer; these stay as the fallback so a car nobody has
+    profiled still sweeps something sensible rather than nothing.
+
+    Unlike discover.py's CANDIDATE_HEADERS -- which is a genuinely generic
+    list of addresses manufacturers use, and stays hardcoded on purpose --
+    this is a claim about which modules a PARTICULAR car actually has.
+    """
+    if not vin and not slug:
+        try:
+            import garage
+            vin = garage.current() or ""
+        except Exception:
+            vin = ""
+    try:
+        import profile as profilelib
+        if not slug and vin:
+            slug = profilelib.for_vin(vin)
+        if slug:
+            doc, _p = profilelib.load(slug)
+            mods = profilelib.modules(doc, default=None)
+            if mods:
+                return [h for h, _label in mods]
+    except Exception:
+        pass
+    return list(DEFAULT_HEADERS)
+
+
 def main(argv):
     import argparse
     import atexit
     ap = argparse.ArgumentParser(prog="omacar dtc", add_help=True)
-    ap.add_argument("--headers", default=",".join(DEFAULT_HEADERS))
+    ap.add_argument("--headers", default=",".join(headers_for()))
     ap.add_argument("--parked", action="store_true",
                     help="confirm the car is parked when road speed cannot be read")
     ap.add_argument("--save", action="store_true",

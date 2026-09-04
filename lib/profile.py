@@ -110,7 +110,56 @@ def vin_prefix(vin):
 # an unknown key used to be hashed but not written, which silently broke the
 # checksum of any file carrying one.
 CAR_KEYS = ("slug", "make", "model", "description", "protocol", "years",
-            "vin_prefix")
+            "vin_prefix", "engine", "drivetrain", "trim",
+            # Physical facts, for anything that has to MODEL the car rather
+            # than just read it -- the simulator most of all. They belong here
+            # for the same reason the modules do: lib/sim.py currently hard-
+            # codes one car's mass, power and redline, which is why its
+            # invented "6-speed manual" was read as fact about a real CR-Z
+            # and repeated to its owner. A simulator driven by the same
+            # profile as the real car cannot describe a different vehicle.
+            "mass_kg", "power_kw", "tank_l", "displacement_l", "redline")
+
+# ---- what the car is MADE OF, as opposed to what has been discovered on it --
+#
+# Everything above this line describes identifiers somebody found. Everything
+# below describes the car itself: which modules answer, what is worth polling,
+# and which optional screens apply. It lives in the same file and the same
+# format on purpose.
+#
+# WHY NOT A SECOND FILE.
+#
+# Because a second format is how a framework dies. The moment "what this car
+# is" and "what we know about this car" live in different places they drift,
+# and somebody has to keep two things in step by hand. A profile is already
+# the unit that gets shared between owners of the same model; the shape of
+# their car belongs in it.
+#
+# WHY IT MATTERS AT ALL.
+#
+# Today lib/telemetry.py hardcodes the PID tiers, lib/ima.py hardcodes two
+# Honda hybrid headers, and lib/dtc.py hardcodes four more. Somebody with a
+# Golf gets an IMA screen that can never populate and a fault sweep aimed at
+# modules their car does not have. None of that is a bug in those files -- it
+# is a car-shaped constant sitting in code that ought to be generic.
+MODULE_KEYS = ("header", "label", "role", "confidence", "provenance")
+
+# The roles a module can play. Open-ended would be friendlier and much worse:
+# a screen that switches on "hybrid-battery" cannot act on a typo, and a typo
+# is exactly what an open vocabulary produces.
+ROLES = ("engine", "transmission", "hybrid-battery", "hybrid-motor",
+         "abs", "body", "gateway", "cluster", "climate", "restraints",
+         "other")
+
+# Poll tiers, fastest first. The names match lib/telemetry.py's own constants
+# so that a profile reads the way the code already talks.
+POLL_TIERS = ("fast", "mid", "slow")
+
+# Optional screens a car may or may not be able to fill. A flag here is a
+# claim that the car HAS the thing, not that OmaCar has found it yet -- `ima`
+# on a CR-Z is true from the moment you know it is a hybrid, long before any
+# state of charge has been read.
+SCREENS = ("ima",)
 PID_KEYS = ("id", "name", "header", "request", "service", "payload_len",
             "varying_bytes", "formula", "unit", "confidence", "provenance")
 PROV_KEYS = ("found_by", "found_on", "vin_prefix", "method", "first_seen",
@@ -146,7 +195,141 @@ def normalize(doc):
             q.pop("provenance", None)
         pids.append(q)
     out["pid"] = pids
+
+    # The capability sections. Each is omitted entirely when absent rather
+    # than written empty, so a profile that predates them normalises to
+    # exactly what it did before and keeps its existing checksum. A format
+    # change that invalidated every shared profile's integrity hash would be
+    # a poor way to introduce one.
+    mods = []
+    for m in src.get("module") or []:
+        q = keep(m, MODULE_KEYS)
+        if not q.get("header"):
+            continue
+        q["header"] = str(q["header"]).upper()
+        if q.get("role") not in ROLES:
+            # An unknown role is kept as "other" rather than dropped: the
+            # module still exists and is still worth sweeping for faults, and
+            # silently losing it would be worse than not knowing its job.
+            q["role"] = "other"
+        prov = keep(m.get("provenance"), PROV_KEYS)
+        if prov:
+            q["provenance"] = prov
+        else:
+            q.pop("provenance", None)
+        mods.append(q)
+    if mods:
+        out["module"] = mods
+
+    poll = {}
+    for tier in POLL_TIERS:
+        names = (src.get("poll") or {}).get(tier)
+        if isinstance(names, list):
+            # De-duplicated, order preserved: the order is a statement about
+            # what matters most on a slow serial link.
+            seen, keptn = set(), []
+            for n in names:
+                n = str(n).strip().upper()
+                if n and n not in seen:
+                    seen.add(n)
+                    keptn.append(n)
+            if keptn:
+                poll[tier] = keptn
+    if poll:
+        out["poll"] = poll
+
+    screens = {}
+    for s in SCREENS:
+        v = (src.get("screens") or {}).get(s)
+        if v is not None:
+            screens[s] = bool(v)
+    if screens:
+        out["screens"] = screens
     return out
+
+
+# ---- reading the capability sections ---------------------------------------
+#
+# Every one of these takes the caller's own default and returns it untouched
+# when the profile says nothing. That is what makes this safe to adopt one
+# call site at a time: a car with no profile, or a profile written before
+# these sections existed, behaves exactly as it did before.
+
+def _doc(profile):
+    """A profile document, from a document or a slug.
+
+    load() returns (doc, path) rather than a doc, so the slug path unpacks.
+    Anything that fails to load is an empty document and every reader below
+    then falls back to the caller's default -- a car with no profile must
+    behave exactly as it did before profiles existed.
+    """
+    if isinstance(profile, dict):
+        return profile
+    if not profile:
+        return {}
+    try:
+        doc, _path = load(profile)
+        return doc or {}
+    except Exception:
+        return {}
+
+
+def modules(profile, default=None):
+    """[(header, label)] for this car, or the caller's default."""
+    doc = _doc(profile)
+    mods = doc.get("module") or []
+    if not mods:
+        return default if default is not None else []
+    return [(m["header"], m.get("label") or m.get("role") or m["header"])
+            for m in mods if m.get("header")]
+
+
+def modules_by_role(profile, role, default=None):
+    """{header: label} for every module playing one role."""
+    doc = _doc(profile)
+    mods = [m for m in (doc.get("module") or []) if m.get("role") == role]
+    if not mods:
+        return default if default is not None else {}
+    return {m["header"]: (m.get("label") or role) for m in mods}
+
+
+def poll(profile, tier, default=None):
+    """The PID names for one tier, or the caller's default."""
+    doc = _doc(profile)
+    names = (doc.get("poll") or {}).get(tier)
+    return list(names) if names else (list(default) if default else [])
+
+
+def screen(profile, name, default=False):
+    """Whether this car can fill an optional screen at all."""
+    doc = _doc(profile)
+    v = (doc.get("screens") or {}).get(name)
+    return default if v is None else bool(v)
+
+
+def for_vin(vin):
+    """The profile slug whose vin_prefix matches this car, or None.
+
+    Matching on the model half of the VIN and never the whole thing is the
+    same rule vin_prefix() exists for: a profile is about a MODEL, and the
+    moment it can be tied to one specific car it has become personal data
+    that other owners of that model should not be inheriting.
+
+    Returns a slug rather than a document so callers can cache the cheap
+    thing. None means "no profile for this car", which every reader above
+    already handles by returning the caller's own default.
+    """
+    want = vin_prefix(vin)
+    if not want:
+        return None
+    for slug in available():
+        doc, _path = load(slug)
+        if not doc:
+            continue
+        got = str((doc.get("car") or {}).get("vin_prefix") or "").upper()
+        if got and want.startswith(got):
+            return slug
+    return None
 
 
 def canonical(doc):

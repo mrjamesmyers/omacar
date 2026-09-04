@@ -10,8 +10,63 @@ heuristic, and we say which one we used.
 # every reading late — the slow group genuinely only drifts.
 FAST = ["RPM", "SPEED", "ENGINE_LOAD", "THROTTLE_POS"]
 MID = ["SHORT_FUEL_TRIM_1", "LONG_FUEL_TRIM_1", "TIMING_ADVANCE", "MAF"]
+# THESE THREE ARE NOW THE FALLBACK, NOT THE ANSWER.
+#
+# They are what a car with no profile gets, and they are shaped by one car --
+# a Honda hybrid. HYBRID_BATTERY_REMAINING in the slow tier is useless on a
+# diesel Golf and it costs a request every cycle to find that out.
+#
+# tiers() below asks the vehicle's profile first and falls back to exactly
+# these, so nothing changes for a car nobody has written a profile for. That
+# is deliberate: a framework that requires a profile before it works at all
+# is a framework nobody adopts.
 SLOW = ["COOLANT_TEMP", "INTAKE_TEMP", "RUN_TIME", "FUEL_LEVEL",
-        "CONTROL_MODULE_VOLTAGE", "AMBIANT_AIR_TEMP"]
+        "CONTROL_MODULE_VOLTAGE", "AMBIANT_AIR_TEMP",
+        # Mode 01 PID 0x5B. The CR-Z lists this in its own support bitmap and
+        # nothing has ever asked for it, so a hybrid's single most interesting
+        # number has been one line away this whole time.
+        #
+        # It goes in SLOW deliberately. Pack charge moves on the timescale of a
+        # hill, not a gear change, and the fast tier is the one competing with
+        # RPM and speed for a serial link that is the real bottleneck here.
+        #
+        # A PID appearing in the support bitmap is a claim by the ECU, not a
+        # promise: plenty of modules advertise a PID and then return a constant.
+        # Until a reading actually varies on this car it stays a candidate --
+        # nothing downstream may draw a gauge from it. See lib/ima.py.
+        "HYBRID_BATTERY_REMAINING"]
+
+_TIER_FALLBACK = {"fast": FAST, "mid": MID, "slow": SLOW}
+
+
+def tiers(vin=None, slug=None):
+    """What to poll on THIS car: {"fast": [...], "mid": [...], "slow": [...]}.
+
+    Resolution order is profile-by-slug, profile-by-VIN, then the constants
+    above. Every step is allowed to fail quietly, because the failure mode
+    that matters is not "no profile" -- it is a daemon that will not start
+    because a profile is malformed. Polling the generic set is always a
+    correct thing to do; refusing to poll never is.
+    """
+    doc = None
+    try:
+        import profile as profilelib
+        if not slug and vin:
+            slug = profilelib.for_vin(vin)
+        if slug:
+            doc, _p = profilelib.load(slug)
+    except Exception:
+        doc = None
+    out = {}
+    for tier in ("fast", "mid", "slow"):
+        names = None
+        if doc:
+            try:
+                names = profilelib.poll(doc, tier, default=None)
+            except Exception:
+                names = None
+        out[tier] = list(names) if names else list(_TIER_FALLBACK[tier])
+    return out
 
 # Gasoline: stoichiometric air/fuel by mass, and fuel density.
 AFR_GASOLINE = 14.7

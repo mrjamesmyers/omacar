@@ -58,10 +58,10 @@ COMMAND = os.path.join(STATE, "command.json")
 # ---- the car ---------------------------------------------------------------
 
 VEHICLE = {
-    "year": 2015, "make": "Honda", "model": "CR-Z", "trim": "EX  ·  6-speed",
+    "year": 2015, "make": "Honda", "model": "CR-Z", "trim": "EX  ·  CVT",
     "vin": "JHMZF1D64FS004917",
     "engine": "1.5 L i-VTEC + IMA",
-    "drivetrain": "FWD hybrid, 6-speed manual",
+    "drivetrain": "FWD hybrid, CVT",
     "power_kw": 97.0,
     "mass_kg": 1250.0,
     "tank_l": 40.0,
@@ -73,6 +73,51 @@ VEHICLE = {
     "simulated": True,
 }
 
+
+def vehicle_from_profile(slug):
+    """VEHICLE, but describing whatever car a profile names.
+
+    THE REASON THIS EXISTS.
+
+    The dictionary above is one invented car, and on 2026-09-03 its invented
+    "6-speed manual" was read out of this file and stated as fact about a real
+    CR-Z, to that car's owner, who had to correct it. The simulator is not
+    supposed to be a source of truth about anybody's vehicle, and the surest
+    way to stop it becoming one is to let it be driven by the same profile the
+    real car uses.
+
+    A slug with no profile, or a profile missing a field, keeps the built-in
+    value -- so `omacar sim` with no arguments behaves exactly as it always
+    has, and simulating somebody else's car is a matter of writing a profile
+    rather than editing this file.
+    """
+    out = dict(VEHICLE)
+    try:
+        import profile as profilelib
+        doc, _p = profilelib.load(slug)
+        car = (doc or {}).get("car") or {}
+    except Exception:
+        return out
+    if not car:
+        return out
+    for key in ("make", "model", "engine", "drivetrain", "trim", "protocol",
+                "mass_kg", "power_kw", "tank_l", "displacement_l", "redline"):
+        if car.get(key) not in (None, ""):
+            out[key] = car[key]
+    # `years` is deliberately NOT used to set the model year. It is a coverage
+    # RANGE -- [2011, 2016] means "this profile describes CR-Zs from 2011 to
+    # 2016" -- so reading years[0] turned a 2015 into a 2011. A profile that
+    # spans six model years cannot say which one is being simulated, and
+    # guessing the earliest is not better than keeping the built-in.
+    years = car.get("years")
+    if isinstance(years, list) and len(years) == 1:
+        out["year"] = years[0]
+    # The VIN is NOT taken from the profile: a profile carries a vin_prefix
+    # describing a model, never a whole VIN, and a simulator that borrowed a
+    # real one would be putting somebody's actual car number into fake data.
+    out["simulated"] = True
+    return out
+
 # Odometer as of the seed date. A 2015 car in 2026 at a shade under 12,000
 # km a year — the mileage decides every service interval below, so it is the
 # one number everything else hangs off.
@@ -81,9 +126,21 @@ ODO_NOW = 137842.0
 # What the car costs to feed. Only used for the cost line; change it here.
 FUEL_PRICE = 1.62
 
-# Gearing, as km/h per 1000 rpm in each of the six. Taken from the CR-Z's
-# ratios and a 195/55R16 rolling circumference.
-GEARS = [11.0, 17.6, 25.4, 32.8, 40.6, 49.5]
+# A CVT, expressed as the SPAN of road speed per 1000 rpm the ratio can cover,
+# on a 195/55R16 rolling circumference.
+#
+# This used to be six fixed steps, and the car it is imitating does not have
+# six of anything. The tell was in the owner's own recorded driving: 19,439
+# moving samples produce ONE broad continuous peak in rpm-per-km/h with a
+# smooth tail, where a six-speed would put six spikes. That histogram was read
+# and explained away as highway driving smearing the lower gears, which is
+# what happens when a model is trusted over a measurement.
+#
+# The tall end is anchored to that measurement: the real car's dominant cruise
+# ratio is about 19.8 rpm per km/h, i.e. 1000/19.8 = 50.5 km/h per 1000 rpm.
+CVT_TALL = 50.5          # economy cruise, the tallest it will pull
+CVT_SHORT = 11.0         # pulling away from rest
+CVT_TARGET_RPM = 1450    # what it holds at light throttle before it has to rev
 IDLE_RPM = 780
 
 # Aerodynamics and rolling resistance, for working out how hard the engine is
@@ -300,20 +357,34 @@ def speed_trace(r, kind, km):
     return speeds
 
 
-def gear_for(kph):
-    """Highest gear that keeps the engine above about 1300 rpm."""
-    for i in range(len(GEARS) - 1, -1, -1):
-        if kph / GEARS[i] * 1000 >= 1300:
-            return i
-    return 0
+def cvt_ratio(kph, accel_kph_s):
+    """Road speed per 1000 rpm at this instant. No steps, by construction.
+
+    A CVT does not choose a gear, it chooses an engine speed and moves the
+    ratio to hold it. At light throttle that is the tallest ratio it can pull
+    while keeping the revs somewhere useful; asked to accelerate it shortens
+    continuously and the engine flares ahead of the road speed, which is the
+    "rubber band" the transmission is famous for.
+
+    Deceleration is deliberately NOT modelled as a shortening: a CVT does hold
+    revs on a trailing throttle, but tying that to negative acceleration here
+    would make the engine scream every time the car slows, which is not what
+    the real record shows.
+    """
+    if kph <= 0:
+        return CVT_SHORT
+    want = kph / (CVT_TARGET_RPM / 1000.0)
+    if accel_kph_s > 0:
+        want /= 1.0 + min(2.2, accel_kph_s * 0.55)
+    return max(CVT_SHORT, min(CVT_TALL, want))
 
 
 def sample_from(v_kph, prev_kph, coolant, ambient, r):
     """One second of the engine, given what the wheels are doing."""
     moving = v_kph > MOVING_KPH
     if moving:
-        g = gear_for(v_kph)
-        rpm = max(IDLE_RPM, v_kph / GEARS[g] * 1000)
+        ratio = cvt_ratio(v_kph, v_kph - prev_kph)
+        rpm = max(IDLE_RPM, v_kph / ratio * 1000)
     else:
         rpm = IDLE_RPM + r.gauss(0, 25)
 
