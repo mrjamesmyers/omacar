@@ -1,0 +1,118 @@
+{
+  "_about": [
+    "The half of doc/ROADMAP.md that a person has to write down, because",
+    "nothing in the repository knows it.",
+    "",
+    "`omacar roadmap` derives everything countable -- lines, tests, profiles,",
+    "coverage, what git shipped -- and never reads it from here. This file",
+    "holds only the three things a checkout genuinely cannot answer:",
+    "",
+    "  inflight  what is being built right now, each naming the file that will",
+    "            exist once it lands. The generator asks git whether that file",
+    "            is tracked and marks the item landed or not. Nobody has to",
+    "            remember to move a line, which is the usual way an in-flight",
+    "            list ends up describing work that shipped a month ago.",
+    "",
+    "  claims    assertions made in the prose that nothing here can check --",
+    "            a price comparison, a piece of arithmetic, a negative result.",
+    "            Each carries the date it was last checked and a human-readable",
+    "            `how`. The generator NEVER executes `how`. A JSON file in a",
+    "            public repository that a maintenance command shells out to is",
+    "            a remote code execution waiting for whoever pulls a branch.",
+    "",
+    "  field     the car and the world: drives, demos, the things that happened",
+    "            away from the keyboard. Append a dated line; do not rewrite",
+    "            old ones. A journal is the one hand-maintained document that",
+    "            does not rot -- when somebody stops keeping it, it stops, it",
+    "            does not start lying."
+  ],
+
+  "schema": 1,
+
+  "inflight": [
+    {
+      "title": "Typography, with a picker",
+      "evidence": ["lib/fonts.py", "share/css/fonts.css"],
+      "note": "The first direct answer to the polish feedback: the app currently inherits whatever the desktop is wearing, which is fine on a laptop and wrong at arm's length in a car."
+    },
+    {
+      "title": "Bottom navigation tabs",
+      "evidence": ["share/css/nav.css"],
+      "note": "A thumb reaches the bottom of a screen mounted in a dash. It does not reach the top."
+    },
+    {
+      "title": "A three-button bar panel",
+      "evidence": [],
+      "note": "Lands inside plugin/Panel.qml, which already exists, so git cannot tell you whether it is done. Confirm by opening the panel."
+    },
+    {
+      "title": "Replay with scrubbing graphs",
+      "evidence": ["share/css/replay.css"],
+      "note": "Replay itself shipped; this is reading a channel by dragging along it rather than by scrubbing to an instant and looking at a number."
+    },
+    {
+      "title": "The hybrid section — what 2.6 has actually found, on screen",
+      "evidence": ["lib/ima.py", "share/js/views/ima.js", "test/ima_test.py"],
+      "note": "The 0x19 catalogues, presented as a map of what each hybrid module measures, with the 0x40 not-run caveat leading rather than footnoted, and a frank panel naming what still cannot be seen."
+    },
+    {
+      "title": "A 3D car viewer",
+      "evidence": ["share/js/car3d.js", "share/css/car3d.css", "doc/car3d.md"],
+      "note": "Where a fault is, shown on the car, rather than named in a list."
+    }
+  ],
+
+  "claims": [
+    {
+      "text": "Flagship scan tools run from the low thousands to well over ten thousand dollars, plus an annual subscription. Indicative, not quoted from a price list.",
+      "asserted": "2026-09-02",
+      "recheck_days": 365,
+      "how": "Check a current dealer or distributor price for a Zeus- or Apollo-class tablet and its renewal. The argument depends on the ratio, not the figure, so a wrong number is embarrassing rather than load-bearing -- but it should still be right."
+    },
+    {
+      "text": "A full sweep of the manufacturer identifier range is about seventy minutes per module.",
+      "asserted": "2026-09-02",
+      "recheck_days": 365,
+      "how": "Arithmetic: the identifier count above, at the pacing lib/autodisc.py actually uses. Time one real burst with `omacar discover` and divide."
+    },
+    {
+      "text": "Pre-CAN protocol support (J1850, ISO 9141-2, KWP2000) is written from the ELM327 datasheet and the ISO documents and has never been run against a pre-CAN car.",
+      "asserted": "2026-09-02",
+      "recheck_days": 180,
+      "how": "Run `omacar doctor` on a pre-1996-protocol vehicle. The moment somebody does, this claim and roadmap item 2.5 both change, and every protocol entry that says 'untested' has to be re-read."
+    },
+    {
+      "text": "Service 0x21 -- the pre-UDS live-data service, and the most likely remaining home for live IMA values -- has never been asked of the CR-Z's hybrid controllers with a correctly shaped 29-bit header.",
+      "asserted": "2026-09-02",
+      "recheck_days": 90,
+      "how": "The only 0x21 sweep on record used header 07E0, an 11-bit address, on a car running CAN 29/500; it is uninformative rather than a negative result. Two minutes parked with the engine running settles it: `omacar prospect --service 0x21 --headers 18DA03F1,18DA04F1,18DA10F1,18DA0EF1 --range 00-FF --parked`."
+    },
+    {
+      "text": "Generic mode 01 PID 0x5B, hybrid battery remaining life, appears in this car's own supported-PID bitmap and has never once been polled.",
+      "asserted": "2026-09-02",
+      "recheck_days": 90,
+      "how": "One request. A support bitmap is a claim the ECU makes about itself, not a reading, and bitmaps overstate. Ask it before anything is built on it."
+    },
+    {
+      "text": "The IMA repair-frequency shares, part number and cell-block figures in share/data/dtc.json are unsourced, and the code they document (P1449) is not in this car's own fault catalogue.",
+      "asserted": "2026-09-02",
+      "recheck_days": 30,
+      "how": "The file's own _about says the shares come from published repair-frequency data but names no source, and its Mode 06 citations match the simulator rather than the car. Either cite a source that was actually read, or mark the entry unsourced. Until then it must not be surfaced as relevant to the CR-Z."
+    }
+  ],
+
+  "field": [
+    {
+      "date": "2026-09-01",
+      "what": "First real-car session on the CR-Z. Protocol identified as ISO 15765-4 (CAN 29/500), the two hybrid controllers found awake on 29-bit headers, and -- after service 0x22 came back empty across thousands of identifiers -- the service 0x19 fault catalogues found, which is where the Honda-specific data actually was."
+    },
+    {
+      "date": "2026-09-02",
+      "what": "Three legs in one day: Marina to Los Banos to San Francisco and home, logging the whole way. The longest continuous real-world run the tool has had, and the first time it was judged on whether it was pleasant to sit next to for hours rather than on whether it read a PID."
+    },
+    {
+      "date": "2026-09-02",
+      "what": "Demonstrated at the Silicon Valley / San Francisco Omarchy meetup at Cloudflare HQ. The feedback was that it was the strongest project shown and that the UI and UX need a higher level of polish. Both halves of that are recorded on this page: the first is the field validation the roadmap had been missing, and the second is now a named gap rather than a compliment nobody wrote down."
+    }
+  ]
+}

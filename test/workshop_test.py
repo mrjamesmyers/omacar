@@ -1147,8 +1147,17 @@ ok("the panel reads the real live.json whatever it is showing",
 ok("a real, answering car overrides the demo",
    re.search(r"readonly property bool demoing: root\.demoMarker && !root\.realLive",
              _panelsrc) is not None)
+# This asserted one exact spelling, `label: root.demoing ? "DEMO" : ""`, and
+# went red the day the badge was done properly. Blanking a label still leaves
+# the Pill in the Flow, holding a gap where a badge used to be -- which is the
+# "it looks too busy" complaint in miniature. Gating on `visible` removes it,
+# because a Flow does not position an invisible child. Both spellings say DEMO
+# when demoing and nothing when not, so the test now accepts either and checks
+# the thing that actually matters instead of the punctuation.
 ok("and it says DEMO when it is showing one",
-   'label: root.demoing ? "DEMO" : ""' in _panelsrc)
+   'label: root.demoing ? "DEMO" : ""' in _panelsrc
+   or re.search(r"visible:\s*root\.demoing\s*\n\s*label:\s*\"DEMO\"", _panelsrc)
+   is not None)
 ok("one button moves both surfaces together",
    "function toggleDemo" in _panelsrc and "omacar demo start" in _panelsrc)
 ok("the browser app badges a simulated car too",
@@ -1291,6 +1300,285 @@ ok("and the app is told to follow the desktop again", _src is None)
 
 themes_mod.STORE = _th_real
 
+
+head("Fonts you can try")
+
+# The meetup asked for two things and only the second one is interesting. A
+# nicer font is a two-line change; a font SYSTEM is the thing that lets the
+# question be settled on the screen it matters on, and everything below is
+# about the ways that system could quietly lie -- offering a font that is not
+# installed, letting a hand-edited file reach the stylesheet, or putting a
+# proportional digit under a speed.
+
+import fonts as fonts_mod  # noqa: E402
+
+_fstore = os.path.join(tmp, "fonts.json")
+_fcache = os.path.join(tmp, "liquid-glass-car.json")
+_f_real, _fc_real = fonts_mod.STORE, fonts_mod.PANEL_CACHE
+fonts_mod.STORE, fonts_mod.PANEL_CACHE = _fstore, _fcache
+
+ok("nothing to start with is the default stack",
+   fonts_mod.load()["active"] == fonts_mod.DEFAULT)
+ok("and the default is one of the stacks on offer",
+   fonts_mod.DEFAULT in fonts_mod.BY_ID)
+
+# EVERY chain has to end somewhere that cannot be missing. A stack naming two
+# fonts that are both absent and nothing after them renders in the browser's
+# default serif, which does not look like a missing font -- it looks like the
+# stylesheet failed to load, and that is an hour spent in the wrong file.
+for _s in fonts_mod.STACKS:
+    for _slot in fonts_mod.SLOTS:
+        ok(f"{_s['id']}/{_slot} ends in something that always renders",
+           _s[_slot][-1] in fonts_mod.GENERIC)
+    ok(f"{_s['id']} fills all three slots",
+       all(_s[_slot] for _slot in fonts_mod.SLOTS))
+    ok(f"{_s['id']} sets numbers in something monospaced or generic",
+       _s["mono"][-1] in ("monospace", "ui-monospace"))
+
+# The store is a file the header invites somebody to open, and its contents are
+# interpolated straight into a font-family declaration. Nothing that could
+# close that declaration may survive the clean.
+_evil = fonts_mod._clean_custom(
+    {"name": "x", "sans": ["Fine Sans", "}; body { display: none } .x {"],
+     "display": [], "mono": []})
+ok("a family name that could close a declaration is dropped",
+   _evil["sans"] == ["Fine Sans", "sans-serif"])
+ok("and nothing that survives can carry a semicolon out",
+   ";" not in fonts_mod.css_value(_evil["sans"] + ["a; }"]))
+ok("a chain of one gets a generic added behind it",
+   fonts_mod._clean_chain(["Comic Mono"], fonts_mod.BY_ID["workshop"]["mono"])
+   == ["Comic Mono", "monospace"])
+ok("a chain that is not a chain falls back to the built-in one",
+   fonts_mod._clean_chain("Helvetica", ["Noto Sans", "sans-serif"])
+   == ["Noto Sans", "sans-serif"])
+
+# Quoting. A family with a space in it and no quotes is two families, neither
+# of which exists.
+_css = fonts_mod.css(fonts_mod.BY_ID["workshop"])
+ok("families are quoted", '"Adwaita Sans"' in _css["sans"])
+ok("generics are left bare", _css["sans"].endswith(", sans-serif"))
+ok("and the generic is never quoted", '"sans-serif"' not in _css["sans"])
+
+_store, _err = fonts_mod.select("writer")
+ok("a stack can be worn", _err is None and _store["active"] == "writer")
+_stack, _stamp = fonts_mod.active()
+ok("and is handed back whole", _stack["id"] == "writer")
+ok("with a stamp, so a running app notices", _stamp > 0)
+_store, _err = fonts_mod.select("helvetica-neue-ultralight")
+ok("a stack that does not exist is refused", _err is not None)
+ok("and refusing it does not change what is worn", _store["active"] == "writer")
+
+_store, _err = fonts_mod.put_custom({"name": "Mine", "sans": ["Noto Sans"],
+                                     "display": ["Noto Sans"], "mono": ["Adwaita Mono"]})
+ok("a stack of your own can be saved", _err is None and _store["custom"] is not None)
+ok("and saving it is the same act as wearing it", _store["active"] == "custom")
+ok("it appears in the list after the built-in ones",
+   [x["id"] for x in fonts_mod.stacks(_store)][-1] == "custom")
+
+# Hand-edited nonsense must not reach the browser. `active` naming a stack that
+# is not there is how an app ends up unstyled with nothing explaining why.
+with open(_fstore, "w", encoding="utf-8") as _f:
+    _f.write(json.dumps({"active": "a-font-that-was-deleted"}))
+ok("an active id naming nothing falls back to the default",
+   fonts_mod.load()["active"] == fonts_mod.DEFAULT)
+with open(_fstore, "w", encoding="utf-8") as _f:
+    _f.write(json.dumps({"active": "custom"}))
+ok("wearing 'custom' with no custom stack under it falls back too",
+   fonts_mod.load()["active"] == fonts_mod.DEFAULT)
+with open(_fstore, "w", encoding="utf-8") as _f:
+    _f.write("this is not json, it is a note to self")
+ok("a file that is not a file does not raise",
+   fonts_mod.load()["active"] == fonts_mod.DEFAULT)
+
+# WHAT THE PANEL GETS. Qt takes one family name, not a fallback chain: handing
+# QML "Adwaita Sans, sans-serif" asks for a font by that literal name, gets
+# nothing, and silently draws in whatever the shell had.
+fonts_mod.select("noto")
+_pay = fonts_mod.panel_payload()
+for _slot in fonts_mod.SLOTS:
+    ok(f"the panel is given one family for {_slot}, not a chain",
+       "," not in _pay[_slot])
+    ok(f"and never a CSS generic for {_slot}", _pay[_slot] not in fonts_mod.GENERIC)
+
+# Merged into the panel's rollup, never created. A cache holding fonts and no
+# car makes the panel show an empty vehicle rather than an absent one, which is
+# a worse lie than a missing font.
+ok("with no rollup there, nothing is written",
+   fonts_mod.stamp_panel_cache() is False and not os.path.exists(_fcache))
+with open(_fcache, "w", encoding="utf-8") as _f:
+    json.dump({"name": "CR-Z", "odometer": 141_000.0}, _f)
+ok("with one there, the fonts are merged in", fonts_mod.stamp_panel_cache() is True)
+_cached = json.load(open(_fcache))
+ok("and the car it already held is untouched", _cached["name"] == "CR-Z")
+ok("under the key the panel would read", _cached["fonts"]["sans"] == _pay["sans"])
+ok("a second pass with nothing changed does not rewrite the file",
+   fonts_mod.stamp_panel_cache() is False)
+
+# ---- the stylesheet ---------------------------------------------------------
+#
+# fonts.css carries the default stack as literal text so that a first paint, a
+# browser still loading its JavaScript and a machine with no config file yet all
+# get something deliberate. That is a copy of what lib/fonts.py says, and a copy
+# is a thing that drifts, so this is what keeps the two honest.
+_fcss = (_share / "css" / "fonts.css").read_text(encoding="utf-8")
+_decl = dict(re.findall(r"^\s*--(sans|display|mono):\s*([^;]+);", _fcss, re.M))
+_want = fonts_mod.css(fonts_mod.BY_ID[fonts_mod.DEFAULT])
+ok("the stylesheet declares all three tokens",
+   set(_decl) == {"sans", "display", "mono"})
+for _slot in fonts_mod.SLOTS:
+    ok(f"and its --{_slot} default is still the one fonts.py hands out",
+       _decl.get(_slot, "").strip() == _want[_slot])
+
+# app.css asks for "JetBrains Mono". What is installed on this machine is a
+# family called "JetBrainsMono Nerd Font", and CSS family matching is exact, so
+# that entry has never once matched. Whatever else --mono ends up being, it may
+# not go back to naming only the string that does not resolve.
+ok("--mono names the family that is actually installed here",
+   "JetBrainsMono Nerd Font" in _fcss)
+
+# THE REGRESSION THE WHOLE FEATURE COULD CAUSE. Adwaita Sans has proportional
+# digits by default -- its zero is 833 units wide and its four is 1265 -- so a
+# speed climbing 44, 45, 46 changes width on every sample unless the readout is
+# told to use tabular figures. Every selector fonts.css puts --display on is a
+# number big enough to read at a glance, and every one of them must carry it.
+# Comments stripped first: the run-up to a rule includes the paragraph above
+# it, and a selector list that starts "/* ---- the large readouts" makes for a
+# test whose name is three lines of prose.
+_bare = re.sub(r"/\*.*?\*/", "", _fcss, flags=re.S)
+_blocks = re.findall(r"([^{}]*)\{([^{}]*)\}", _bare)
+_display_rules = [(sel, body) for sel, body in _blocks if "var(--display)" in body]
+ok("fonts.css does route the large readouts at --display", len(_display_rules) >= 2)
+for _sel, _body in _display_rules:
+    _names = [x.strip() for x in _sel.strip().split(",")]
+    # A heading is words and does not need it; a readout is figures and does.
+    if any(x for x in _names if "-v" in x or "value" in x or "stat" in x):
+        ok("a readout set in --display asks for tabular figures: "
+           + _names[0].strip(),
+           "tabular-nums" in _body)
+
+# And the small figures app.css left without it, now that --mono is no longer
+# guaranteed to be a monospace once somebody picks a stack.
+for _cls in (".vbar .odo", ".tbl .num", ".rp-time", ".rp-v", ".svc-when",
+             ".hub-vital-v", ".learn-stat-n", ".g-num"):
+    ok(f"{_cls} is pinned to tabular figures",
+       re.search(re.escape(_cls) + r"[^{}]*\{[^{}]*tabular-nums", _fcss, re.S)
+       is not None
+       or any(_cls in sel and "tabular-nums" in body for sel, body in _blocks))
+
+# ---- the endpoint -----------------------------------------------------------
+_st, _cat = api.handle_get("/api/fonts", {})
+ok("the app can ask what is on offer", _st == 200)
+ok("and is told which one is worn", _cat["active"] in
+   [x["id"] for x in _cat["stacks"]])
+ok("each card carries the CSS it will apply",
+   all(set(x["css"]) == {"sans", "display", "mono"} for x in _cat["stacks"]))
+ok("and what each slot will really render as, resolved here and not guessed",
+   all("resolved" in x and set(x["resolved"]) == {"sans", "display", "mono"}
+       for x in _cat["stacks"]))
+ok("a stack with a missing head font says which one and how to install it",
+   all(x["install"] or not x["package"] for x in _cat["stacks"]))
+
+_st, _out = api.handle_post("/api/fonts", json.dumps({"action": "select", "id": "terminal"}))
+ok("one can be selected over the wire", _st == 200 and _out["active"] == "terminal")
+_st, _out = api.handle_post("/api/fonts", json.dumps({"action": "select", "id": "nope"}))
+ok("and a font that does not exist is a 400, not a traceback", _st == 400)
+_st, _out = api.handle_post("/api/fonts", json.dumps({"action": "wear-something"}))
+ok("an action that is not an action is refused too", _st == 400)
+
+fonts_mod.STORE, fonts_mod.PANEL_CACHE = _f_real, _fc_real
+
+
+head("A meter that actually moves")
+
+# The radio visualiser shipped DEAD. radioBars() builds its element and hands
+# it back for the caller to append, so on the first tick it is detached --
+# and the loop's own teardown check, `if (!wrap.isConnected) stop()`, fired
+# immediately and killed it. Every bar and every peak cap was present and
+# correct in the DOM, so structural checks passed while nothing on screen ever
+# moved. Measured afterwards with a MutationObserver: four attribute writes in
+# two seconds with the guard, zero without it.
+#
+# These are source checks, which is weak -- the real proof needs a browser --
+# but the specific regression is a one-line edit to a guard, and a one-line
+# edit is exactly what a source check catches.
+_radio = (_share / "js" / "radio.js").read_text(encoding="utf-8")
+ok("the meter waits to be mounted instead of reaping itself",
+   "mounted = true" in _radio and "MOUNT_GRACE" in _radio)
+ok("the bare isConnected teardown is gone",
+   "if (!wrap.isConnected) { stop(); return; }" not in _radio)
+ok("but a discarded copy is still let go",
+   re.search(r"\}\s*else if \(mounted\)\s*\{\s*stop\(\);", _radio) is not None)
+ok("and one built and never appended gives up rather than polling for ever",
+   "waited > MOUNT_GRACE" in _radio)
+
+# Every stylesheet on disk must be reachable from the page. Four were written,
+# were correct, and were never linked -- so the bottom navigation and the whole
+# typography layer were inert while every test stayed green. A missing <link>
+# fails nothing, which is exactly why it needs asserting.
+_html = (_share / "app.html").read_text(encoding="utf-8")
+_linked = set(re.findall(r'href="css/([a-z0-9-]+\.css)"', _html))
+_ondisk = {p.name for p in (_share / "css").glob("*.css")}
+_orphans = sorted(_ondisk - _linked)
+# The names go in the label rather than a third argument: ok() takes exactly
+# (name, cond), and a failure that cannot say WHICH sheet is missing would
+# leave somebody grepping for it.
+ok("every stylesheet on disk is linked by app.html"
+   + (f" — never loaded: {', '.join(_orphans)}" if _orphans else ""),
+   not _orphans)
+ok("and app.css is first, since the rest build on its tokens",
+   _html.index('href="css/app.css"')
+   == min(_html.index(f'href="css/{n}"') for n in _linked))
+
+head("A profile that says what the car is made of")
+
+# The framework claim in one test: car-shaped constants move OUT of lib/ and
+# into a profile, WITHOUT breaking a car that has no profile. Both halves
+# matter — a framework that requires a profile before it works is one nobody
+# adopts, and a profile that silently does nothing is decoration.
+import profile as _prof          # noqa: E402
+import telemetry as _tele        # noqa: E402
+
+_crz, _crzpath = _prof.load("honda-crz-2015")
+ok("the shipped profile still verifies its own checksum",
+   _prof.verify(_crz)[0])
+ok("it declares the modules that answer on this car",
+   len(_prof.modules(_crz)) >= 5)
+ok("and what job each one does, so screens switch on a ROLE not a header",
+   _prof.modules_by_role(_crz, "hybrid-battery") == {"18DA03F1": "hybrid / battery"}
+   and _prof.modules_by_role(_crz, "hybrid-motor") == {"18DA04F1": "hybrid / motor"})
+ok("an unknown role is kept as 'other' rather than dropped",
+   _prof.normalize({"car": {}, "module": [
+       {"header": "18DAFFF1", "role": "wormhole"}]})["module"][0]["role"] == "other")
+# The drivetrain line exists because sim.py's invented "6-speed manual" was
+# read as fact about a real car and repeated to its owner.
+ok("the car's own drivetrain is recorded, not inferred from the simulator",
+   "CVT" in ((_crz.get("car") or {}).get("drivetrain") or ""))
+
+ok("a VIN resolves to its model profile",
+   _prof.for_vin("JHMZF1D44FS001835") == "honda-crz-2015")
+ok("and a car nobody has profiled resolves to nothing",
+   _prof.for_vin("WVWZZZ1KZAW000000") is None)
+ok("matching never uses more than the model half of a VIN",
+   _prof.vin_prefix("JHMZF1D44FS001835") == "JHMZF1D4")
+
+_t = _tele.tiers(vin="JHMZF1D44FS001835")
+ok("the CR-Z's poll tiers come from its profile",
+   "HYBRID_BATTERY_REMAINING" in _t["slow"] and _t["fast"] == ["RPM", "SPEED",
+                                                              "ENGINE_LOAD",
+                                                              "THROTTLE_POS"])
+_u = _tele.tiers(vin="WVWZZZ1KZAW000000")
+ok("a car with no profile still polls, using the built-in fallback",
+   _u["slow"] == _tele.SLOW and _u["fast"] == _tele.FAST)
+ok("and asking for nothing at all is also safe",
+   _tele.tiers()["mid"] == _tele.MID)
+ok("a malformed profile does not stop the daemon polling",
+   _tele.tiers(slug="../../etc/passwd")["fast"] == _tele.FAST)
+
+# Capability sections are omitted when empty so profiles written before they
+# existed normalise — and therefore checksum — exactly as they did.
+_bare = _prof.normalize({"car": {"slug": "x"}, "pid": []})
+ok("a profile with no capability sections gains none",
+   "module" not in _bare and "poll" not in _bare and "screens" not in _bare)
 
 shutil.rmtree(tmp, ignore_errors=True)
 

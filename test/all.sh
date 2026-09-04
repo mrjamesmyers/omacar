@@ -30,4 +30,21 @@ else
   python3 "$ROOT/test/workshop_test.py" || fails=$((fails + 1))
 fi
 
+# The suites that live in their own files. Both were written alongside a
+# feature and neither was listed here, so both passed on demand and ran in no
+# actual test run -- which is the same as not existing. Anything added to
+# test/ from now on belongs in this list on the day it is written.
+#
+#   ima      what the hybrid modules answered, and the rule that an
+#            undiscovered quantity never renders as a number
+#   sitrep   redaction, which is the promise that nothing leaving this
+#            machine says whose car it is
+for suite in ima sitrep; do
+  if [[ -x "$VENV/bin/python" ]]; then
+    "$VENV/bin/python" "$ROOT/test/${suite}_test.py" || fails=$((fails + 1))
+  else
+    python3 "$ROOT/test/${suite}_test.py" || fails=$((fails + 1))
+  fi
+done
+
 exit $((fails > 0))

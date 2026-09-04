@@ -41,6 +41,7 @@
 #   omacar ai [triage|owner|predict|code P0135|ask "..."]
 #                             the diagnostic advisor — reads this car's own
 #                             numbers and tells you what is actually wrong
+#   omacar roadmap [--check]  regenerate the measured half of doc/ROADMAP.md
 #   omacar state              key=value status for the bar widget
 #   omacar demo start|stop|status|trash
 #                             a throwaway OmaCar with its own data, for showing
@@ -745,6 +746,12 @@ print()
       trash) demo_trash ;;
       *) demo_status ;;
     esac ;;
+  # The roadmap regenerates itself rather than being remembered. Stdlib
+  # only and no car, so it runs under system python like the other
+  # offline commands -- it reads git, runs the test suite and counts what
+  # is in the profile pool. It rewrites doc/ROADMAP.md only when one of
+  # those numbers has actually moved, so it is safe to run in a hook.
+  roadmap) shift; exec python3 "$ROOT/lib/roadmap.py" "$@" ;;
   state) state ;;
   server) case "${2:-status}" in stop) server_stop ;; *) server_status ;; esac ;;
   help | --help | -h) usage ;;
